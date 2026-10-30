@@ -1,0 +1,42 @@
+{
+  "name": "screenwise-companion",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A screen-aware cybersecurity companion for Windows",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "concurrently -k -n API,WEB,DESKTOP -c yellow,cyan,magenta \"npm:dev:server\" \"npm:dev:web\" \"npm:dev:desktop\"",
+    "dev:server": "node --watch server/index.mjs",
+    "dev:web": "vite --force --host 127.0.0.1",
+    "dev:desktop": "wait-on tcp:5187 tcp:8787 && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5187 VITE_COMPANION_API_URL=http://127.0.0.1:8787 electron .",
+    "preview:desktop": "wait-on tcp:8787 && cross-env SCREENWISE_LOAD_DIST=1 electron .",
+    "setup:electron": "node node_modules/electron/install.js",
+    "build": "tsc -b && vite build",
+    "start:server": "node server/index.mjs",
+    "preview": "vite preview --host 127.0.0.1",
+    "typecheck": "tsc -b --pretty",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "lucide-react": "^0.468.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.10.5",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.3.4",
+    "concurrently": "^9.1.2",
+    "cross-env": "^7.0.3",
+    "electron": "^45.1.0",
+    "typescript": "~5.7.2",
+    "vite": "^6.0.7",
+    "wait-on": "^8.0.1"
+  }
+}
