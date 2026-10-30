@@ -1,4 +1,4 @@
-const { app, BrowserWindow, desktopCapturer, ipcMain } = require('electron');
+const { app, BrowserWindow, desktopCapturer, ipcMain, screen } = require('electron');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 
@@ -8,11 +8,14 @@ function createWindow() {
   const isDevelopment = !app.isPackaged && process.env.SCREENWISE_LOAD_DIST !== '1';
   const devUrl = process.env.VITE_DEV_SERVER_URL || 'http://127.0.0.1:5173';
   const distPath = path.join(__dirname, '..', 'dist', 'index.html');
+  const { width: workAreaWidth, height: workAreaHeight } = screen.getPrimaryDisplay().workAreaSize;
+  const windowWidth = Math.min(560, Math.max(380, workAreaWidth - 32));
+  const windowHeight = Math.min(820, Math.max(560, workAreaHeight - 24));
   mainWindow = new BrowserWindow({
-    width: 430,
-    height: 820,
-    minWidth: 370,
-    minHeight: 620,
+    width: windowWidth,
+    height: windowHeight,
+    minWidth: Math.min(420, windowWidth),
+    minHeight: Math.min(600, windowHeight),
     maxWidth: 560,
     title: 'Screenwise Companion',
     frame: false,

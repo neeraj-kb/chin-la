@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Activity, ArrowDown, ArrowUp, Bot, Check, ChevronDown, CircleHelp, Eye, EyeOff,
+  Activity, ArrowDown, ArrowUp, Check, ChevronDown, CircleHelp, Eye, EyeOff,
   LoaderCircle, LockKeyhole, Minimize2, Monitor, Pause, Play,
   ShieldAlert, Sparkles, Trash2, X,
 } from 'lucide-react';
+import robotMascot from './assets/robot-mascot.svg';
+import robotAvatar from './assets/robot-avatar.svg';
+import dragHandle from './assets/drag-handle.svg';
 import { checkBackend, sendTurn } from './lib/api';
 import { changeRatio, frameFingerprint } from './lib/screenChange';
 import { clearSession, loadSession, saveSession } from './lib/session';
@@ -25,14 +28,13 @@ function AssistantCard({ reply }: { reply: AssistantReply }) {
   return (
     <div className="assistant-card">
       <div className="reply-heading">
-        <span className="reply-icon"><Bot size={14} /></span>
         <span>Screenwise</span>
         <span className={`confidence confidence-${reply.confidence}`}>{reply.confidence} confidence</span>
       </div>
       <p className="reply-explanation">{reply.explanation}</p>
       {reply.background && <div className="background-note"><span>WHY IT MATTERS</span><p>{reply.background}</p></div>}
-      {reply.nextStep && <div className="next-step"><div className="next-step-icon"><ArrowDown size={14} /></div><div><span>NEXT STEP</span><p>{reply.nextStep}</p></div></div>}
-      {reply.steps.length > 1 && <ol className="step-list">{reply.steps.map((step, index) => <li key={`${index}-${step}`}><span>{index + 1}</span>{step}</li>)}</ol>}
+      {reply.nextStep && <div className="next-step"><div className="next-step-icon"><ArrowDown size={18} /></div><div><span>SAFEST NEXT STEP</span><p>{reply.nextStep}</p></div></div>}
+      {reply.steps.length > 0 && <ol className="step-list">{reply.steps.map((step, index) => <li key={`${index}-${step}`}><span>{index + 1}</span>{step}</li>)}</ol>}
     </div>
   );
 }
@@ -59,14 +61,20 @@ function App() {
   const controllerRef = useRef<AbortController | null>(null);
   const messagesRef = useRef(messages);
   const stateRef = useRef(sessionState);
-  const transcriptEndRef = useRef<HTMLDivElement>(null);
+  const conversationRef = useRef<HTMLElement>(null);
+  const stickToBottomRef = useRef(true);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => { messagesRef.current = messages; saveSession({ messages, state: sessionState }); }, [messages, sessionState]);
   useEffect(() => { stateRef.current = sessionState; }, [sessionState]);
   useEffect(() => { statusRef.current = status; }, [status]);
   useEffect(() => { sourceRef.current = selectedSource; }, [selectedSource]);
-  useEffect(() => { transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }); }, [messages, busy]);
+  useEffect(() => {
+    const conversation = conversationRef.current;
+    if (conversation && stickToBottomRef.current) {
+      conversation.scrollTo({ top: conversation.scrollHeight, behavior: 'smooth' });
+    }
+  }, [messages, busy]);
 
   useEffect(() => {
     let cancelled = false;
@@ -93,7 +101,10 @@ function App() {
     setBusy(true);
     setNotice('');
     const history = messagesRef.current.slice(-12).map(({ role, text, id, createdAt }) => ({ role, text, id, createdAt }));
-    if (showUserMessage && message) pushMessage(newMessage('user', message));
+    if (showUserMessage && message) {
+      stickToBottomRef.current = true;
+      pushMessage(newMessage('user', message));
+    }
     const controller = new AbortController();
     controllerRef.current = controller;
     let frameData = '';
@@ -246,26 +257,28 @@ function App() {
 
   return (
     <div className="app-shell">
-      <header className="topbar">
-        <div className="brand-block drag-region">
-          <div className="brand-mark"><Bot size={18} strokeWidth={2} /></div>
-          <div><div className="brand-name">screenwise<span> companion</span></div><div className="brand-caption">CALM, CLEAR SECURITY GUIDANCE</div></div>
+      <header className="topbar drag-region">
+        <div className="brand-block">
+          <div className="brand-mark"><img src={robotMascot} alt="" /></div>
+          <div><div className="brand-name">Screenwise</div><div className="brand-caption">SECURITY COMPANION</div></div>
         </div>
+        <div className="drag-hint" aria-hidden="true"><img src={dragHandle} alt="" /><span>MOVE</span></div>
         <div className="window-actions no-drag">
-          <button className="icon-button" title="Session progress" aria-label="Session progress" onClick={() => setShowSession((value) => !value)}><Activity size={16} /></button>
-          <button className="icon-button" title="Clear conversation" aria-label="Clear conversation" onClick={() => setShowClearConfirm(true)}><Trash2 size={15} /></button>
-          {window.companionDesktop && <button className="icon-button" title="Minimize" aria-label="Minimize" onClick={() => void window.companionDesktop?.minimize()}><Minimize2 size={15} /></button>}
-          {window.companionDesktop && <button className="icon-button close-button" title="Close" aria-label="Close" onClick={() => void window.companionDesktop?.close()}><X size={16} /></button>}
+          <button className="icon-button" title="Session progress" aria-label="Session progress" onClick={() => setShowSession((value) => !value)}><Activity size={18} /></button>
+          <button className="icon-button" title="Clear conversation" aria-label="Clear conversation" onClick={() => setShowClearConfirm(true)}><Trash2 size={18} /></button>
+          {window.companionDesktop && <button className="icon-button" title="Minimize" aria-label="Minimize" onClick={() => void window.companionDesktop?.minimize()}><Minimize2 size={18} /></button>}
+          {window.companionDesktop && <button className="icon-button close-button" title="Close" aria-label="Close" onClick={() => void window.companionDesktop?.close()}><X size={18} /></button>}
         </div>
       </header>
 
       <section className={`monitor-banner monitor-${statusTone}`}>
         <div className="monitor-state-icon">{status === 'active' ? <Eye size={16} /> : status === 'paused' ? <EyeOff size={16} /> : <Monitor size={16} />}</div>
         <div className="monitor-copy"><strong>{statusCopy}</strong><span>{status === 'active' ? 'Screen changes are checked privately' : status === 'paused' ? 'No screen frames are being captured' : 'Choose a window to get started'}</span></div>
+        <div className={`monitor-status status-${statusTone}`}><span />{status === 'active' ? 'LIVE' : status === 'paused' ? 'PAUSED' : 'READY'}</div>
         <div className="monitor-controls">
-          {status === 'off' && <button className="small-primary" onClick={handleStart} disabled={sourceLoading}>{sourceLoading ? <LoaderCircle className="spin" size={14} /> : <Play size={13} fill="currentColor" />}{sourceLoading ? 'Loading' : 'Start'}</button>}
-          {status !== 'off' && <button className="small-control" onClick={togglePause}>{status === 'active' ? <><Pause size={13} />Pause</> : <><Play size={13} fill="currentColor" />Resume</>}</button>}
-          {status !== 'off' && <button className="stop-control" onClick={stopMonitoring} title="Stop monitoring" aria-label="Stop monitoring"><span /></button>}
+          {status === 'off' && <button className="small-primary" onClick={handleStart} disabled={sourceLoading}>{sourceLoading ? <LoaderCircle className="spin" size={18} /> : <Play size={17} fill="currentColor" />}{sourceLoading ? 'Loading' : 'Start'}</button>}
+          {status !== 'off' && <button className="small-control" onClick={togglePause}>{status === 'active' ? <><Pause size={17} />Pause</> : <><Play size={17} fill="currentColor" />Resume</>}</button>}
+          {status !== 'off' && <button className="stop-control" onClick={stopMonitoring} title="Stop monitoring" aria-label="Stop monitoring"><span /><span>Stop</span></button>}
         </div>
       </section>
 
@@ -286,25 +299,13 @@ function App() {
           <div className="memory-foot"><LockKeyhole size={12} /> Text context is saved on this device. Images aren't saved by this app.</div>
       </section>}
 
-      <main className="conversation" aria-live="polite">
+      <main className="conversation" ref={conversationRef} aria-label="Conversation" aria-live="polite" tabIndex={0} onScroll={(event) => {
+        const element = event.currentTarget;
+        stickToBottomRef.current = element.scrollHeight - element.scrollTop - element.clientHeight < 80;
+      }}>
         {messages.length === 0 ? <div className="welcome">
           <div className="welcome-orbit" role="img" aria-label="Screenwise robot companion">
-            <svg className="welcome-robot" viewBox="0 0 120 110" aria-hidden="true">
-              <defs>
-                <linearGradient id="robot-shell" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#b9f4dc" /><stop offset="1" stopColor="#63bfa5" /></linearGradient>
-                <linearGradient id="robot-face" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#263e42" /><stop offset="1" stopColor="#17292e" /></linearGradient>
-              </defs>
-              <path d="M60 10v12" stroke="#a6e8cd" strokeWidth="4" strokeLinecap="round" />
-              <circle className="robot-status-light" cx="60" cy="8" r="5" fill="#a6e8cd" />
-              <path d="M30 43H21v18h9M90 43h9v18h-9" fill="#2d7770" stroke="#8de0bf" strokeWidth="3" strokeLinejoin="round" />
-              <rect x="28" y="24" width="64" height="52" rx="18" fill="url(#robot-shell)" />
-              <rect x="34" y="30" width="52" height="39" rx="13" fill="url(#robot-face)" />
-              <g className="robot-eyes" fill="#a8f4d3"><ellipse cx="48" cy="47" rx="4" ry="5" /><ellipse cx="72" cy="47" rx="4" ry="5" /></g>
-              <path d="M51 59q9 7 18 0" fill="none" stroke="#83d9b8" strokeWidth="3" strokeLinecap="round" />
-              <path d="M43 76v6q0 8 8 8h18q8 0 8-8v-6" fill="#328d7b" stroke="#8de0bf" strokeWidth="3" />
-              <path d="M38 82 31 91M82 82l7 9" stroke="#8de0bf" strokeWidth="5" strokeLinecap="round" />
-              <circle cx="31" cy="93" r="4" fill="#b6f1d8" /><circle cx="89" cy="93" r="4" fill="#b6f1d8" />
-            </svg>
+            <img className="welcome-robot" src={robotMascot} alt="Screenwise robot companion" />
             <span className="orbit-dot dot-one" /><span className="orbit-dot dot-two" /><span className="orbit-dot dot-three" />
           </div>
           <div className="welcome-kicker"><span /> YOUR QUIET SECURITY COPILOT</div>
@@ -317,15 +318,14 @@ function App() {
           </div>
         </div> : <div className="message-list">
           {messages.map((message) => <article className={`message-row ${message.role}`} key={message.id}>
-            {message.role === 'assistant' && <div className="avatar"><Bot size={13} /></div>}
+            {message.role === 'assistant' && <img className="assistant-avatar" src={robotAvatar} alt="Screenwise assistant" />}
             <div className="message-content">
               {message.role === 'assistant' && message.reply ? <AssistantCard reply={message.reply} /> : <div className={`plain-bubble ${message.role}`}>{message.text}</div>}
               <time>{formatTime(message.createdAt)}</time>
             </div>
             {message.role === 'user' && <div className="user-avatar">YOU</div>}
           </article>)}
-          {busy && <div className="thinking-row"><div className="avatar"><Bot size={13} /></div><div className="thinking"><span className="thinking-dots"><i /><i /><i /></span><span>Making sense of it…</span></div></div>}
-          <div ref={transcriptEndRef} />
+          {busy && <div className="thinking-row"><img className="assistant-avatar" src={robotAvatar} alt="" /><div className="thinking"><span className="thinking-dots"><i /><i /><i /></span><span>Making sense of it…</span></div></div>}
         </div>}
       </main>
 
