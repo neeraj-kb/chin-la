@@ -1,39 +1,84 @@
 # Screenwise Companion
 
-A Windows desktop companion for nontechnical staff. It can watch a user-selected screen or window, explain relevant security issues in plain language, remember the current step, and answer follow-up questions.
+**Accessible cybersecurity guidance for small teams.** Screenwise is a floating Windows companion that helps nontechnical staff understand security warnings on their screen and choose a safe next step.
+
+## Hackathon problem statement
+
+Small organizations such as community clinics, retail shops, and schools often do not have a dedicated security operations team. Staff may see suspicious emails, browser warnings, or account alerts without knowing what they mean. Security tools can be noisy and use technical language, leaving a receptionist or administrator unsure what to do next.
+
+The challenge is to give these teams clearer threat visibility and practical decision support without requiring cybersecurity expertise.
+
+## Our solution approach
+
+Screenwise acts as a screen-aware cybersecurity companion. It explains what it can see in plain language, distinguishes visible facts from uncertainty, and suggests safe actions the user can carry out themselves. The user remains in control: Screenwise does not click buttons, change settings, block accounts, or take defensive actions automatically.
+
+### User flow
+
+1. The user presses **Start** and selects a screen or app window to monitor.
+2. While monitoring is active, the desktop app checks for meaningful screen changes. Captured frames stay in memory and are sent for analysis when monitoring starts, when a change is detected, or when the user asks about the current screen.
+3. Gemini analyzes the image first when configured. If Gemini is unavailable, Groq vision is used as a fallback.
+4. Groq turns the screen description and the user’s question into a short explanation, relevant context, and a clear next step. It also updates the current goal and progress.
+5. The user can ask follow-up questions, pause monitoring, or stop it at any time. When monitoring is paused or stopped, the companion relies on the saved text context rather than a new screen image.
+
+The assistant is designed to avoid interrupting for routine screen changes, while surfacing a useful next step when one is apparent. It should say when the screen is unclear instead of guessing.
+
+## How it works
+
+```mermaid
+flowchart LR
+  U[User selects a screen] --> E[Electron captures frames in memory]
+  E --> C[Local change detection]
+  C -->|Start, meaningful change, or question| P[Local API proxy]
+  P --> G[Gemini image analysis, if configured]
+  G -->|Unavailable| V[Groq vision fallback]
+  G -->|Screen description| A[Groq guidance and progress]
+  V --> A
+  A --> R[Plain-language explanation and next step]
+  R --> U
+```
+
+### Main components
+
+- **Windows desktop app:** Electron provides the always-on-top companion window, screen/window picker, and Start, Pause, Resume, and Stop controls. A React and Vite interface presents the robot companion, chat, explanations, and session progress.
+- **Screen awareness:** Electron captures a user-selected source. The app compares small in-memory fingerprints locally and sends a frame for analysis only when needed. Screen images are not saved to disk by the app.
+- **AI proxy:** A local Express service keeps provider keys out of the renderer. Gemini is tried first for image understanding when configured; Groq handles chat and can analyze images on its own when Gemini is absent or unavailable.
+- **Session memory:** A compact text history and progress state are stored in local browser storage. The user can clear them in the app. Images are not included in that saved history.
+
+## Privacy and user control
+
+- Monitoring starts only after the user presses **Start** and chooses a screen or window.
+- **Pause** stops sending new frames; **Stop** ends monitoring and releases the selected source.
+- The app and local proxy do not write screen frames to disk or log request bodies. Frames are sent to the configured AI provider for analysis, so review that provider’s data handling terms before using Screenwise with sensitive information.
+- API keys stay in the local `.env` file and are used by the Node proxy, not the desktop renderer. `.env` is excluded from Git.
+- The assistant gives guidance for the user to perform. It does not carry out the recommended actions.
 
 ## Run on Windows
 
 1. Install Node.js 22.12 or newer.
-2. In this folder, run `npm install`.
-3. Run `npm run setup:electron` to download Electron’s official Windows runtime.
-4. Copy `.env.example` to `.env` and add a **newly rotated** Groq key. Gemini is optional.
+2. From this repository folder, run `npm install`.
+3. Run `npm run setup:electron` to install Electron’s Windows runtime.
+4. Copy `.env.example` to `.env` and add a Groq API key. Gemini is optional.
 5. Run `npm run dev`.
 
-This starts the Electron app, the Vite UI, and a local API proxy bound to `127.0.0.1`. The Electron window stays on top. Press **Start**, choose one screen or app window, and the capture indicator will show when monitoring is active. **Pause** stops capture; **Stop** ends the session.
-
-The app sends a frame to the local proxy for analysis when monitoring starts, when a meaningful visual change is detected, or when the user asks a question while monitoring. The proxy tries Gemini for image analysis first and falls back to Groq vision if Gemini is unavailable; Groq also handles the chat and step explanations. Neither the app nor the proxy writes screen frames to disk or logs request bodies. Chat and compact session progress are saved in local browser storage and can be cleared from the app.
-
-Frames are sent to the configured AI providers for processing. Review the providers’ current data handling terms before using the app with sensitive information. The companion never clicks or changes anything on the user’s behalf.
+This starts the local API proxy, the Vite interface, and the Electron desktop window. The proxy listens on `127.0.0.1` by default. The current project runs from source; a Windows installer has not been configured.
 
 ## Configure provider keys
 
-Create a local `.env` file (excluded from Git) with a Groq key for chat and screen analysis. Add a Gemini key only if you want Gemini tried first for image analysis:
+Groq is required for chat and can also analyze screen images. Add a Gemini key if you want Gemini tried first for image analysis. Put both keys in your local `.env` file; do not commit or share the file.
 
 ```env
-GROQ_API_KEY=your-new-groq-key
-# Optional: tried first for image analysis; Groq vision is the fallback.
-GEMINI_API_KEY=your-new-gemini-key
+GROQ_API_KEY=your-groq-key
+GEMINI_API_KEY=your-gemini-key
 ```
 
-Optional model overrides:
+The model settings are optional and can be changed in `.env`:
 
 ```env
 GEMINI_MODEL=gemini-3.8-flash
 GROQ_MODEL=qwen/qwen3.8-27b
 ```
 
-Groq is required for chat and can analyze images when Gemini is not configured. The API keys are used only by the Node API process, never by the renderer. The local proxy listens on loopback by default. Do not expose it to a public network. For remote use, deploy the proxy behind authentication and TLS, then build the renderer with `VITE_COMPANION_API_URL` set to that service.
+For remote use, deploy the proxy behind authentication and TLS, then set `VITE_COMPANION_API_URL` before building the renderer. Do not expose the local proxy directly to a public network.
 
 ## Checks
 
@@ -43,4 +88,8 @@ npm run typecheck
 npm run build
 ```
 
-The current build creates the UI bundle. Packaging and deployment of a remote authenticated proxy are not configured yet.
+The test suite includes screen-change checks and provider-mocked API flow tests, so running the tests does not require real provider keys. Live model calls still require valid keys and any provider account setup they require.
+
+## Current scope
+
+The hackathon MVP focuses on screen awareness, plain-language explanations, step-by-step guidance, progress tracking, and chat about visible content. It is a companion for small organizations, not a replacement for a dedicated security team. The first version does not include integrations with security products or automated remediation.
