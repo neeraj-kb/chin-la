@@ -60,7 +60,7 @@ flowchart LR
 4. Copy `.env.example` to `.env` and add an OpenRouter API key. You can use one key for both tasks or separate vision and chat keys. Direct Gemini and Groq keys are optional fallbacks.
 5. Run `npm run dev`.
 
-This starts the local API proxy, the Vite interface, and the Electron desktop window. The proxy listens on `127.0.0.1` by default. The current project runs from source; a Windows installer has not been configured.
+This starts the local API proxy, the Vite interface, and the Electron desktop window. The development proxy uses `127.0.0.1:8788` to avoid common local port conflicts; running the proxy on its own still defaults to `127.0.0.1:8787`. The current project runs from source; a Windows installer has not been configured.
 
 ## Configure provider keys
 
