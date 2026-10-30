@@ -3,12 +3,20 @@ import { once } from 'node:events';
 import test from 'node:test';
 
 process.env.GEMINI_MODEL = 'test-gemini-model';
+process.env.OPENROUTER_VISION_MODEL = 'test-openrouter-vision-model';
+process.env.OPENROUTER_CHAT_MODEL = 'test-openrouter-chat-model';
 // Simulate an existing .env copied from the old example; the server must upgrade it.
 process.env.GROQ_MODEL = 'qwen/qwen3.6-27b';
+for (const name of ['GEMINI_API_KEY', 'GROQ_API_KEY', 'OPENROUTER_API_KEY', 'OPENROUTER_VISION_API_KEY', 'OPENROUTER_CHAT_API_KEY', 'api1', 'api2']) {
+  process.env[name] = 'unit-test-disabled-key';
+}
 const { createApp } = await import('./server/index.mjs');
 
 const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/test-gemini-model:generateContent';
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
+const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
+const OPENROUTER_VISION_MODEL = 'test-openrouter-vision-model';
+const OPENROUTER_CHAT_MODEL = 'test-openrouter-chat-model';
 const GROQ_MODEL = 'qwen/qwen3.8-27b';
 const IMAGE = 'data:image/png;base64,aGVsbG8=';
 
@@ -26,13 +34,26 @@ const replyFixture = {
   shouldInterrupt: true,
 };
 
-function providerConfig(t, { gemini = '', groq = 'unit-test-groq-key' } = {}) {
-  const previous = {
-    GEMINI_API_KEY: process.env.GEMINI_API_KEY,
-    GROQ_API_KEY: process.env.GROQ_API_KEY,
-  };
-  process.env.GEMINI_API_KEY = gemini;
-  process.env.GROQ_API_KEY = groq;
+function providerConfig(t, {
+  gemini = '',
+  groq = 'unit-test-groq-key',
+  openrouter = '',
+  openrouterVision = '',
+  openrouterChat = '',
+  api1 = '',
+  api2 = '',
+} = {}) {
+  const names = ['GEMINI_API_KEY', 'GROQ_API_KEY', 'OPENROUTER_API_KEY', 'OPENROUTER_VISION_API_KEY', 'OPENROUTER_CHAT_API_KEY', 'api1', 'api2'];
+  const previous = Object.fromEntries(names.map((name) => [name, process.env[name]]));
+  Object.assign(process.env, {
+    GEMINI_API_KEY: gemini,
+    GROQ_API_KEY: groq,
+    OPENROUTER_API_KEY: openrouter,
+    OPENROUTER_VISION_API_KEY: openrouterVision,
+    OPENROUTER_CHAT_API_KEY: openrouterChat,
+    api1,
+    api2,
+  });
   t.after(() => {
     for (const [key, value] of Object.entries(previous)) {
       if (value === undefined) delete process.env[key];
@@ -57,7 +78,7 @@ function mockProviderFetch(t, handler) {
   const realFetch = globalThis.fetch;
   t.mock.method(globalThis, 'fetch', async (input, init) => {
     const url = typeof input === 'string' ? input : input.url;
-    if (url.startsWith('https://generativelanguage.googleapis.com/') || url === GROQ_URL) {
+    if (url.startsWith('https://generativelanguage.googleapis.com/') || url === GROQ_URL || url === OPENROUTER_URL) {
       return handler(url, init);
     }
     return realFetch(input, init);
@@ -125,6 +146,76 @@ test('screen analysis → Groq guidance keeps the visible context and session pr
   assert.equal(body.reply.nextStep, replyFixture.nextStep);
   assert.equal(body.reply.confidence, 'medium');
   assert.equal(body.reply.screenSummary, replyFixture.screenSummary);
+});
+
+test('OpenRouter uses separate api1/api2 keys for vision and chat', async (t) => {
+  providerConfig(t, { groq: '', api1: 'unit-test-openrouter-vision-key', api2: 'unit-test-openrouter-chat-key' });
+  const calls = [];
+  mockProviderFetch(t, async (url, init) => {
+    assert.equal(url, OPENROUTER_URL);
+    const body = JSON.parse(init.body);
+    calls.push({ init, body });
+    if (calls.length === 1) {
+      assert.equal(init.headers.Authorization, 'Bearer unit-test-openrouter-vision-key');
+      assert.equal(body.model, OPENROUTER_VISION_MODEL);
+      assert.equal(body.max_completion_tokens, 600);
+      assert.equal(body.messages[0].content[1].image_url.url, IMAGE);
+      assert.match(body.messages[0].content[0].text, /untrusted user content/i);
+      return jsonResponse({ choices: [{ message: { content: 'A sign-in alert is open on the account page.' } }] });
+    }
+
+    assert.equal(init.headers.Authorization, 'Bearer unit-test-openrouter-chat-key');
+    assert.equal(body.model, OPENROUTER_CHAT_MODEL);
+    assert.equal(body.max_completion_tokens, 900);
+    assert.deepEqual(body.response_format, { type: 'json_object' });
+    const context = JSON.parse(body.messages.at(-1).content);
+    assert.equal(context.currentScreenDescription, 'A sign-in alert is open on the account page.');
+    assert.equal(context.userMessage, 'Where should I review this?');
+    return groqReplyResponse();
+  });
+
+  const base = await withServer(t);
+  const health = await (await fetch(`${base}/api/health`)).json();
+  assert.deepEqual(health.configured, { gemini: false, groq: false, openrouter: true, openrouterChat: true });
+
+  const response = await fetch(`${base}/api/turn`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message: 'Where should I review this?', frameData: IMAGE, state: {}, history: [] }),
+  });
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(calls.length, 2);
+  assert.equal(body.reply.explanation, replyFixture.explanation);
+});
+
+test('one shared OpenRouter key supports vision and chat', async (t) => {
+  providerConfig(t, { groq: '', openrouter: 'unit-test-openrouter-shared-key' });
+  let calls = 0;
+  mockProviderFetch(t, async (url, init) => {
+    assert.equal(url, OPENROUTER_URL);
+    assert.equal(init.headers.Authorization, 'Bearer unit-test-openrouter-shared-key');
+    const body = JSON.parse(init.body);
+    calls += 1;
+    if (calls === 1) {
+      assert.equal(body.model, OPENROUTER_VISION_MODEL);
+      assert.equal(body.messages[0].content[1].image_url.url, IMAGE);
+      return jsonResponse({ choices: [{ message: { content: 'A blank one-pixel test image.' } }] });
+    }
+    assert.equal(body.model, OPENROUTER_CHAT_MODEL);
+    return groqReplyResponse();
+  });
+
+  const base = await withServer(t);
+  const response = await fetch(`${base}/api/turn`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message: 'What does this image show?', frameData: IMAGE, state: {}, history: [] }),
+  });
+  assert.equal(response.status, 200);
+  assert.equal(calls, 2);
+  assert.equal((await response.json()).reply.explanation, replyFixture.explanation);
 });
 
 test('Gemini failure falls back to Groq vision, then returns plain-language guidance', async (t) => {
@@ -209,7 +300,7 @@ test('Groq alone supports chat and vision, and health reports key presence accur
 
   const base = await withServer(t);
   const health = await (await fetch(`${base}/api/health`)).json();
-  assert.deepEqual(health, { ok: true, configured: { gemini: false, groq: true } });
+  assert.deepEqual(health, { ok: true, configured: { gemini: false, groq: true, openrouter: false, openrouterChat: false } });
 
   const response = await fetch(`${base}/api/turn`, {
     method: 'POST',

@@ -72,7 +72,7 @@ function App() {
     let cancelled = false;
     checkBackend().then((result) => {
       if (cancelled) return;
-      setServiceStatus(result.configured.groq ? 'ready' : 'missing');
+      setServiceStatus(result.configured.groq || result.configured.openrouterChat ? 'ready' : 'missing');
     }).catch(() => { if (!cancelled) setServiceStatus('offline'); });
     return () => { cancelled = true; };
   }, []);
@@ -271,7 +271,7 @@ function App() {
 
       {(serviceStatus !== 'ready' || notice) && <div className={`notice-bar ${serviceStatus === 'offline' || serviceStatus === 'missing' ? 'notice-warning' : ''}`}>
         {serviceStatus === 'checking' ? <LoaderCircle size={13} className="spin" /> : serviceStatus === 'ready' ? <Check size={13} /> : <CircleHelp size={13} />}
-        <span>{notice || (serviceStatus === 'checking' ? 'Connecting to the companion service…' : serviceStatus === 'offline' ? 'Companion service unavailable. Start it with npm run dev.' : 'Add GROQ_API_KEY to .env to enable chat and Groq screen analysis, then restart the app. Gemini is optional.')}</span>
+        <span>{notice || (serviceStatus === 'checking' ? 'Connecting to the companion service…' : serviceStatus === 'offline' ? 'Companion service unavailable. Start it with npm run dev.' : 'Add an OPENROUTER_CHAT_API_KEY or GROQ_API_KEY to .env to enable chat, then restart the app.')}</span>
         {notice && <button onClick={() => setNotice('')} aria-label="Dismiss notice"><X size={13} /></button>}
       </div>}
 

@@ -5,7 +5,10 @@ const API_BASE = import.meta.env.VITE_COMPANION_API_URL || 'http://127.0.0.1:878
 export async function checkBackend() {
   const response = await fetch(`${API_BASE}/api/health`, { signal: AbortSignal.timeout(5000) });
   if (!response.ok) throw new Error('The companion service is unavailable.');
-  return response.json() as Promise<{ ok: boolean; configured: { gemini: boolean; groq: boolean } }>;
+  return response.json() as Promise<{
+    ok: boolean;
+    configured: { gemini: boolean; groq: boolean; openrouter: boolean; openrouterChat: boolean };
+  }>;
 }
 
 export async function sendTurn(input: {
