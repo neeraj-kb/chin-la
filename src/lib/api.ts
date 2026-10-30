@@ -15,13 +15,25 @@ export async function sendTurn(input: {
   state: SessionState;
   history: ChatMessage[];
 }, signal?: AbortSignal): Promise<AssistantReply> {
-  const response = await fetch(`${API_BASE}/api/turn`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(input),
-    signal: signal || AbortSignal.timeout(75_000),
-  });
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.error || 'The assistant could not respond. Try again.');
-  return body.reply as AssistantReply;
+  const timeoutSignal = AbortSignal.timeout(75_000);
+  const requestSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
+  try {
+    const response = await fetch(`${API_BASE}/api/turn`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+      signal: requestSignal,
+    });
+    const body = await response.json().catch((error) => {
+      if (requestSignal.aborted) throw error;
+      return {};
+    });
+    if (!response.ok) throw new Error(body.error || 'The assistant could not respond. Try again.');
+    return body.reply as AssistantReply;
+  } catch (error) {
+    if (timeoutSignal.aborted && !signal?.aborted) {
+      throw new Error('The assistant took too long to respond. Please try again.');
+    }
+    throw error;
+  }
 }

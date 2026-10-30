@@ -1,9 +1,13 @@
 const { app, BrowserWindow, desktopCapturer, ipcMain } = require('electron');
 const path = require('node:path');
+const { pathToFileURL } = require('node:url');
 
 let mainWindow;
 
 function createWindow() {
+  const isDevelopment = !app.isPackaged && process.env.SCREENWISE_LOAD_DIST !== '1';
+  const devUrl = process.env.VITE_DEV_SERVER_URL || 'http://127.0.0.1:5173';
+  const distPath = path.join(__dirname, '..', 'dist', 'index.html');
   mainWindow = new BrowserWindow({
     width: 430,
     height: 820,
@@ -28,12 +32,22 @@ function createWindow() {
   // Keep the companion out of its own screen capture on Windows.
   if (process.platform === 'win32') mainWindow.setContentProtection(true);
 
+  mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  mainWindow.webContents.on('will-navigate', (event, targetUrl) => {
+    let isAllowed = false;
+    if (isDevelopment) {
+      try { isAllowed = new URL(targetUrl).origin === new URL(devUrl).origin; } catch { /* Block malformed URLs. */ }
+    } else {
+      isAllowed = targetUrl === pathToFileURL(distPath).href;
+    }
+    if (!isAllowed) event.preventDefault();
+  });
+
   mainWindow.once('ready-to-show', () => mainWindow.show());
   mainWindow.on('closed', () => { mainWindow = null; });
 
-  const devUrl = process.env.VITE_DEV_SERVER_URL || 'http://127.0.0.1:5173';
-  if (!app.isPackaged && process.env.SCREENWISE_LOAD_DIST !== '1') mainWindow.loadURL(devUrl);
-  else mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
+  if (isDevelopment) mainWindow.loadURL(devUrl);
+  else mainWindow.loadFile(distPath);
 }
 
 ipcMain.handle('capture:list-sources', async () => {

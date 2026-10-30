@@ -136,6 +136,7 @@ function parseReply(text, state, screenText) {
   } catch {
     value = { explanation: text };
   }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) value = { explanation: text };
   const strings = (item, max) => (Array.isArray(item) ? item : []).filter((x) => typeof x === 'string').slice(0, max).map((x) => x.slice(0, 500));
   return {
     explanation: safeText(value.explanation, 1400) || 'I could not form a clear explanation from this screen.',
@@ -203,7 +204,6 @@ app.post('/api/turn', async (req, res) => {
     if (res.headersSent) return;
     const message = error.name === 'AbortError' ? 'Request cancelled.' : error.message || 'The assistant could not respond.';
     res.status(error.name === 'AbortError' ? 499 : 502).json({ error: message });
-  } finally {
   }
 });
 

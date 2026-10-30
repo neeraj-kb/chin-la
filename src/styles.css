@@ -71,7 +71,9 @@ button:focus-visible, textarea:focus-visible { outline: 2px solid var(--mint); o
 .welcome-orbit::before, .welcome-orbit::after { position: absolute; content: ''; border: 1px solid rgba(132, 214, 189, .12); border-radius: 50%; }
 .welcome-orbit::before { inset: 8px; }
 .welcome-orbit::after { inset: -8px; border-style: dashed; opacity: .52; }
-.welcome-core { display: grid; place-items: center; width: 49px; height: 49px; border: 1px solid rgba(132, 214, 189, .25); border-radius: 16px; color: var(--mint); background: linear-gradient(145deg, #203b3a, #192626); box-shadow: 0 0 22px rgba(132, 214, 189, .14); }
+.welcome-robot { position: relative; z-index: 1; width: 82px; height: 82px; overflow: visible; filter: drop-shadow(0 5px 12px rgba(86, 205, 165, .22)); animation: robotFloat 3.6s ease-in-out infinite; }
+.robot-status-light { transform-box: fill-box; transform-origin: center; animation: statusPulse 2s ease-in-out infinite; }
+.robot-eyes { transform-box: fill-box; transform-origin: center; animation: robotBlink 5.5s infinite; }
 .orbit-dot { position: absolute; z-index: 1; width: 5px; height: 5px; border-radius: 50%; background: #94e2c6; box-shadow: 0 0 9px rgba(148, 226, 198, .65); }
 .dot-one { top: 8px; left: 25px; }.dot-two { right: 4px; bottom: 27px; }.dot-three { bottom: 6px; left: 30px; }
 .welcome-kicker { display: flex; align-items: center; gap: 7px; color: #8eb6a9; font: 500 8px 'DM Mono', monospace; letter-spacing: 1.6px; }
@@ -138,7 +140,11 @@ button:focus-visible, textarea:focus-visible { outline: 2px solid var(--mint); o
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 @keyframes popIn { from { opacity: 0; transform: translateY(7px) scale(.985); } to { opacity: 1; transform: translateY(0) scale(1); } }
 @keyframes dotPulse { 0%, 80%, 100% { opacity: .35; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-3px); } }
+@keyframes robotFloat { 0%, 100% { transform: translateY(1px); } 50% { transform: translateY(-4px); } }
+@keyframes statusPulse { 0%, 100% { opacity: .65; transform: scale(.86); } 50% { opacity: 1; transform: scale(1.12); } }
+@keyframes robotBlink { 0%, 45%, 49%, 100% { transform: scaleY(1); } 47% { transform: scaleY(.12); } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; } }
 
 @media (max-height: 700px) {
-  .welcome { min-height: 350px; padding-top: 16px; }.welcome-orbit { width: 75px; height: 75px; margin-bottom: 16px; }.welcome-core { width: 41px; height: 41px; }.welcome h1 { font-size: 25px; }.welcome > p { margin-top: 9px; }.privacy-chip { margin-top: 12px; }.quick-prompts { margin-top: 14px; }
+  .welcome { min-height: 350px; padding-top: 16px; }.welcome-orbit { width: 75px; height: 75px; margin-bottom: 16px; }.welcome-robot { width: 68px; height: 68px; }.welcome h1 { font-size: 25px; }.welcome > p { margin-top: 9px; }.privacy-chip { margin-top: 12px; }.quick-prompts { margin-top: 14px; }
 }

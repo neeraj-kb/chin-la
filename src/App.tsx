@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Activity, ArrowDown, ArrowUp, Check, ChevronDown, CircleHelp, Eye, EyeOff,
+  Activity, ArrowDown, ArrowUp, Bot, Check, ChevronDown, CircleHelp, Eye, EyeOff,
   LoaderCircle, LockKeyhole, Minimize2, Monitor, Pause, Play,
-  ShieldAlert, ShieldCheck, Sparkles, Trash2, X,
+  ShieldAlert, Sparkles, Trash2, X,
 } from 'lucide-react';
 import { checkBackend, sendTurn } from './lib/api';
 import { changeRatio, frameFingerprint } from './lib/screenChange';
@@ -25,7 +25,7 @@ function AssistantCard({ reply }: { reply: AssistantReply }) {
   return (
     <div className="assistant-card">
       <div className="reply-heading">
-        <span className="reply-icon"><Sparkles size={14} /></span>
+        <span className="reply-icon"><Bot size={14} /></span>
         <span>Screenwise</span>
         <span className={`confidence confidence-${reply.confidence}`}>{reply.confidence} confidence</span>
       </div>
@@ -49,7 +49,6 @@ function App() {
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [serviceStatus, setServiceStatus] = useState<'checking' | 'ready' | 'missing' | 'offline'>('checking');
-  const [configured, setConfigured] = useState({ gemini: false, groq: false });
   const [notice, setNotice] = useState('');
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [showSession, setShowSession] = useState(false);
@@ -73,8 +72,7 @@ function App() {
     let cancelled = false;
     checkBackend().then((result) => {
       if (cancelled) return;
-      setConfigured(result.configured);
-      setServiceStatus(result.configured.gemini && result.configured.groq ? 'ready' : 'missing');
+      setServiceStatus(result.configured.groq ? 'ready' : 'missing');
     }).catch(() => { if (!cancelled) setServiceStatus('offline'); });
     return () => { cancelled = true; };
   }, []);
@@ -90,7 +88,7 @@ function App() {
 
   const runAssistantTurn = useCallback(async (options: { message: string; eventOnly?: boolean; forceFrame?: boolean; showUserMessage?: boolean }) => {
     const { message, eventOnly = false, forceFrame = false, showUserMessage = true } = options;
-    if (checkingRef.current) return;
+    if (checkingRef.current || (eventOnly && statusRef.current !== 'active')) return;
     checkingRef.current = true;
     setBusy(true);
     setNotice('');
@@ -157,6 +155,7 @@ function App() {
           void runAssistantTurn({ message: '', eventOnly: true, forceFrame: true, showUserMessage: false });
         }
       } catch (error) {
+        statusRef.current = 'paused';
         setNotice(error instanceof Error ? error.message : 'Screen capture paused.');
         setStatus('paused');
       }
@@ -182,6 +181,8 @@ function App() {
   };
 
   const selectSource = (source: CaptureSource) => {
+    sourceRef.current = source;
+    statusRef.current = 'active';
     setSelectedSource(source);
     setShowSourcePicker(false);
     setSources([]);
@@ -199,6 +200,7 @@ function App() {
   const togglePause = () => {
     if (status === 'active') {
       controllerRef.current?.abort();
+      statusRef.current = 'paused';
       setStatus('paused');
       setNotice('Monitoring paused · no new frames are sent');
     } else if (status === 'paused' && selectedSource) {
@@ -246,7 +248,7 @@ function App() {
     <div className="app-shell">
       <header className="topbar">
         <div className="brand-block drag-region">
-          <div className="brand-mark"><ShieldCheck size={17} strokeWidth={2.2} /></div>
+          <div className="brand-mark"><Bot size={18} strokeWidth={2} /></div>
           <div><div className="brand-name">screenwise<span> companion</span></div><div className="brand-caption">CALM, CLEAR SECURITY GUIDANCE</div></div>
         </div>
         <div className="window-actions no-drag">
@@ -269,7 +271,7 @@ function App() {
 
       {(serviceStatus !== 'ready' || notice) && <div className={`notice-bar ${serviceStatus === 'offline' || serviceStatus === 'missing' ? 'notice-warning' : ''}`}>
         {serviceStatus === 'checking' ? <LoaderCircle size={13} className="spin" /> : serviceStatus === 'ready' ? <Check size={13} /> : <CircleHelp size={13} />}
-        <span>{notice || (serviceStatus === 'checking' ? 'Connecting to the companion service…' : serviceStatus === 'offline' ? 'Companion service unavailable. Start it with npm run dev.' : `Add ${!configured.gemini ? 'GEMINI_API_KEY' : ''}${!configured.gemini && !configured.groq ? ' and ' : ''}${!configured.groq ? 'GROQ_API_KEY' : ''} to .env, then restart the app.`)}</span>
+        <span>{notice || (serviceStatus === 'checking' ? 'Connecting to the companion service…' : serviceStatus === 'offline' ? 'Companion service unavailable. Start it with npm run dev.' : 'Add GROQ_API_KEY to .env to enable chat and Groq screen analysis, then restart the app. Gemini is optional.')}</span>
         {notice && <button onClick={() => setNotice('')} aria-label="Dismiss notice"><X size={13} /></button>}
       </div>}
 
@@ -286,7 +288,25 @@ function App() {
 
       <main className="conversation" aria-live="polite">
         {messages.length === 0 ? <div className="welcome">
-          <div className="welcome-orbit"><div className="welcome-core"><ShieldAlert size={27} /></div><span className="orbit-dot dot-one" /><span className="orbit-dot dot-two" /><span className="orbit-dot dot-three" /></div>
+          <div className="welcome-orbit" role="img" aria-label="Screenwise robot companion">
+            <svg className="welcome-robot" viewBox="0 0 120 110" aria-hidden="true">
+              <defs>
+                <linearGradient id="robot-shell" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#b9f4dc" /><stop offset="1" stopColor="#63bfa5" /></linearGradient>
+                <linearGradient id="robot-face" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#263e42" /><stop offset="1" stopColor="#17292e" /></linearGradient>
+              </defs>
+              <path d="M60 10v12" stroke="#a6e8cd" strokeWidth="4" strokeLinecap="round" />
+              <circle className="robot-status-light" cx="60" cy="8" r="5" fill="#a6e8cd" />
+              <path d="M30 43H21v18h9M90 43h9v18h-9" fill="#2d7770" stroke="#8de0bf" strokeWidth="3" strokeLinejoin="round" />
+              <rect x="28" y="24" width="64" height="52" rx="18" fill="url(#robot-shell)" />
+              <rect x="34" y="30" width="52" height="39" rx="13" fill="url(#robot-face)" />
+              <g className="robot-eyes" fill="#a8f4d3"><ellipse cx="48" cy="47" rx="4" ry="5" /><ellipse cx="72" cy="47" rx="4" ry="5" /></g>
+              <path d="M51 59q9 7 18 0" fill="none" stroke="#83d9b8" strokeWidth="3" strokeLinecap="round" />
+              <path d="M43 76v6q0 8 8 8h18q8 0 8-8v-6" fill="#328d7b" stroke="#8de0bf" strokeWidth="3" />
+              <path d="M38 82 31 91M82 82l7 9" stroke="#8de0bf" strokeWidth="5" strokeLinecap="round" />
+              <circle cx="31" cy="93" r="4" fill="#b6f1d8" /><circle cx="89" cy="93" r="4" fill="#b6f1d8" />
+            </svg>
+            <span className="orbit-dot dot-one" /><span className="orbit-dot dot-two" /><span className="orbit-dot dot-three" />
+          </div>
           <div className="welcome-kicker"><span /> YOUR QUIET SECURITY COPILOT</div>
           <h1>Your screen,<br /><em>made clearer.</em></h1>
           <p>Start monitoring to get a plain-language read on what you’re seeing. Ask questions anytime; we’ll keep track of your next step.</p>
@@ -297,14 +317,14 @@ function App() {
           </div>
         </div> : <div className="message-list">
           {messages.map((message) => <article className={`message-row ${message.role}`} key={message.id}>
-            {message.role === 'assistant' && <div className="avatar"><Sparkles size={13} /></div>}
+            {message.role === 'assistant' && <div className="avatar"><Bot size={13} /></div>}
             <div className="message-content">
               {message.role === 'assistant' && message.reply ? <AssistantCard reply={message.reply} /> : <div className={`plain-bubble ${message.role}`}>{message.text}</div>}
               <time>{formatTime(message.createdAt)}</time>
             </div>
             {message.role === 'user' && <div className="user-avatar">YOU</div>}
           </article>)}
-          {busy && <div className="thinking-row"><div className="avatar"><Sparkles size={13} /></div><div className="thinking"><span className="thinking-dots"><i /><i /><i /></span><span>Making sense of it…</span></div></div>}
+          {busy && <div className="thinking-row"><div className="avatar"><Bot size={13} /></div><div className="thinking"><span className="thinking-dots"><i /><i /><i /></span><span>Making sense of it…</span></div></div>}
           <div ref={transcriptEndRef} />
         </div>}
       </main>

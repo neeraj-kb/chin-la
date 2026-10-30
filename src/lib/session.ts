@@ -31,5 +31,9 @@ export function saveSession(session: SavedSession) {
 }
 
 export function clearSession() {
-  localStorage.removeItem(STORAGE_KEY);
+  try {
+    localStorage.removeItem(STORAGE_KEY);
+  } catch {
+    // Clearing in-memory state still works when browser storage is unavailable.
+  }
 }
