@@ -12,7 +12,7 @@ A Windows desktop companion for nontechnical staff. It can watch a user-selected
 
 This starts the Electron app, the Vite UI, and a local API proxy bound to `127.0.0.1`. The Electron window stays on top. Press **Start**, choose one screen or app window, and the capture indicator will show when monitoring is active. **Pause** stops capture; **Stop** ends the session.
 
-The app sends a frame to the local proxy for analysis when monitoring starts, when a meaningful visual change is detected, or when the user asks a question while monitoring. The proxy forwards images to Gemini and the response context to Groq. Neither the app nor the proxy writes screen frames to disk or logs request bodies. Chat and compact session progress are saved in local browser storage and can be cleared from the app.
+The app sends a frame to the local proxy for analysis when monitoring starts, when a meaningful visual change is detected, or when the user asks a question while monitoring. The proxy tries Gemini for image analysis first and falls back to Groq vision if Gemini is unavailable; Groq also handles the chat and step explanations. Neither the app nor the proxy writes screen frames to disk or logs request bodies. Chat and compact session progress are saved in local browser storage and can be cleared from the app.
 
 Frames are sent to the configured AI providers for processing. Review the providers’ current data handling terms before using the app with sensitive information. The companion never clicks or changes anything on the user’s behalf.
 
