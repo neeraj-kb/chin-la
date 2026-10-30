@@ -1,16 +1,26 @@
 import 'dotenv/config';
 import cors from 'cors';
 import express from 'express';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
-const app = express();
 const port = Number(process.env.PORT || 8787);
 const host = process.env.HOST || '127.0.0.1';
 const geminiModel = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
-const groqModel = process.env.GROQ_MODEL || 'qwen/qwen3.6-27b';
+const configuredGroqModel = process.env.GROQ_MODEL;
+// The previous starter config used a model that has since been retired.
+const groqModel = !configuredGroqModel || configuredGroqModel === 'qwen/qwen3.6-27b'
+  ? 'qwen/qwen3.8-27b'
+  : configuredGroqModel;
 
-app.disable('x-powered-by');
-app.use(cors({ origin: ['http://127.0.0.1:5187', 'http://localhost:5187', 'null'] }));
-app.use(express.json({ limit: '10mb' }));
+export function createApp() {
+  const app = express();
+  app.disable('x-powered-by');
+  app.use(cors({ origin: ['http://127.0.0.1:5187', 'http://localhost:5187', 'null'] }));
+  app.use(express.json({ limit: '10mb' }));
+  registerRoutes(app);
+  return app;
+}
 
 const responseShape = {
   explanation: 'string',
@@ -28,6 +38,10 @@ const responseShape = {
 
 function safeText(value, limit = 1600) {
   return typeof value === 'string' ? value.slice(0, limit) : '';
+}
+
+function providerError(payload, provider, status) {
+  return safeText(payload?.error?.message, 600) || `${provider} returned HTTP ${status}.`;
 }
 
 function sanitizeState(value = {}) {
@@ -66,13 +80,16 @@ async function analyzeWithGemini(image, signal) {
     headers: { 'Content-Type': 'application/json', 'x-goog-api-key': process.env.GEMINI_API_KEY },
     body: JSON.stringify({
       contents: [{ role: 'user', parts: [{ text: prompt }, { inlineData: { mimeType: image.mimeType, data: image.data } }] }],
-      generationConfig: { temperature: 0.15, maxOutputTokens: 600 },
+      generationConfig: { maxOutputTokens: 600 },
     }),
     signal,
   });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(payload.error?.message || `Gemini returned HTTP ${response.status}.`);
-  const text = payload.candidates?.[0]?.content?.parts?.map((part) => part.text || '').join('').trim();
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(providerError(payload, 'Gemini', response.status));
+  const parts = payload?.candidates?.[0]?.content?.parts;
+  const text = Array.isArray(parts)
+    ? parts.map((part) => safeText(part?.text, 1200)).join('').trim()
+    : '';
   if (!text) throw new Error('Gemini could not read that screen. Try again or ask a question.');
   return text;
 }
@@ -86,7 +103,8 @@ async function analyzeWithGroq(image, signal) {
     body: JSON.stringify({
       model: groqModel,
       temperature: 0.15,
-      max_tokens: 500,
+      max_completion_tokens: 500,
+      reasoning_format: 'hidden',
       messages: [{
         role: 'user',
         content: [
@@ -97,9 +115,9 @@ async function analyzeWithGroq(image, signal) {
     }),
     signal,
   });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(payload.error?.message || `Groq visual analysis returned HTTP ${response.status}.`);
-  const text = payload.choices?.[0]?.message?.content;
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(providerError(payload, 'Groq visual analysis', response.status));
+  const text = payload?.choices?.[0]?.message?.content;
   if (typeof text !== 'string' || !text.trim()) throw new Error('Groq could not read that screen. Try again.');
   return text.trim();
 }
@@ -169,45 +187,62 @@ async function composeReply({ message, screenText, state, history, eventOnly }, 
   const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
     headers: { Authorization: `Bearer ${process.env.GROQ_API_KEY}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: groqModel, temperature: 0.25, max_tokens: 900, response_format: { type: 'json_object' }, messages }),
+    body: JSON.stringify({
+      model: groqModel,
+      temperature: 0.25,
+      max_completion_tokens: 900,
+      response_format: { type: 'json_object' },
+      reasoning_format: 'hidden',
+      messages,
+    }),
     signal,
   });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(payload.error?.message || `Groq returned HTTP ${response.status}.`);
-  const content = payload.choices?.[0]?.message?.content;
-  if (!content) throw new Error('The chat model returned an empty response. Try again.');
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(providerError(payload, 'Groq', response.status));
+  const content = payload?.choices?.[0]?.message?.content;
+  if (typeof content !== 'string' || !content.trim()) throw new Error('The chat model returned an empty response. Try again.');
   return parseReply(content, state, screenText);
 }
 
-app.get('/api/health', (_req, res) => {
-  res.json({ ok: true, configured: { gemini: Boolean(process.env.GEMINI_API_KEY), groq: Boolean(process.env.GROQ_API_KEY) } });
-});
+function registerRoutes(app) {
+  app.get('/api/health', (_req, res) => {
+    res.json({ ok: true, configured: { gemini: Boolean(process.env.GEMINI_API_KEY), groq: Boolean(process.env.GROQ_API_KEY) } });
+  });
 
-app.post('/api/turn', async (req, res) => {
-  const controller = new AbortController();
-  const abort = () => controller.abort();
-  res.on('close', () => { if (!res.writableEnded) abort(); });
-  try {
-    const message = safeText(req.body?.message, 1600);
-    const eventOnly = req.body?.eventOnly === true;
-    const state = sanitizeState(req.body?.state);
-    const history = sanitizeHistory(req.body?.history);
-    const image = req.body?.frameData ? decodeImage(req.body.frameData) : null;
-    if (req.body?.frameData && !image) return res.status(400).json({ error: 'The screen image was not in a supported format.' });
-    if (!image && !message && !eventOnly) return res.status(400).json({ error: 'Ask a question or start screen monitoring first.' });
+  app.post('/api/turn', async (req, res) => {
+    const controller = new AbortController();
+    const abort = () => controller.abort();
+    res.on('close', () => { if (!res.writableEnded) abort(); });
+    try {
+      const message = safeText(req.body?.message, 1600);
+      const eventOnly = req.body?.eventOnly === true;
+      const state = sanitizeState(req.body?.state);
+      const history = sanitizeHistory(req.body?.history);
+      const image = req.body?.frameData ? decodeImage(req.body.frameData) : null;
+      if (req.body?.frameData && !image) return res.status(400).json({ error: 'The screen image was not in a supported format.' });
+      if (!image && !message && !eventOnly) return res.status(400).json({ error: 'Ask a question or start screen monitoring first.' });
 
-    let screenText = '';
-    if (image) screenText = await analyzeFrame(image, controller.signal);
-    const reply = await composeReply({ message, screenText, state, history, eventOnly }, controller.signal);
-    res.json({ reply });
-  } catch (error) {
-    if (res.headersSent) return;
-    const message = error.name === 'AbortError' ? 'Request cancelled.' : error.message || 'The assistant could not respond.';
-    res.status(error.name === 'AbortError' ? 499 : 502).json({ error: message });
-  }
-});
+      let screenText = '';
+      if (image) screenText = await analyzeFrame(image, controller.signal);
+      const reply = await composeReply({ message, screenText, state, history, eventOnly }, controller.signal);
+      res.json({ reply });
+    } catch (error) {
+      if (res.headersSent) return;
+      const message = error.name === 'AbortError' ? 'Request cancelled.' : error.message || 'The assistant could not respond.';
+      res.status(error.name === 'AbortError' ? 499 : 502).json({ error: message });
+    }
+  });
 
-app.listen(port, host, () => {
-  console.log(`Screenwise API listening at http://${host}:${port}`);
-  console.log(`Provider keys configured: Gemini=${Boolean(process.env.GEMINI_API_KEY)}, Groq=${Boolean(process.env.GROQ_API_KEY)}`);
-});
+}
+
+export const app = createApp();
+
+export function startServer() {
+  return app.listen(port, host, () => {
+    console.log(`Screenwise API listening at http://${host}:${port}`);
+    console.log(`Provider keys configured: Gemini=${Boolean(process.env.GEMINI_API_KEY)}, Groq=${Boolean(process.env.GROQ_API_KEY)}`);
+  });
+}
+
+const entryPoint = process.argv[1] ? pathToFileURL(path.resolve(process.argv[1])).href : '';
+if (entryPoint === import.meta.url) startServer();

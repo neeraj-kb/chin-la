@@ -30,7 +30,7 @@ Optional model overrides:
 
 ```env
 GEMINI_MODEL=gemini-3.8-flash
-GROQ_MODEL=qwen/qwen3.6-27b
+GROQ_MODEL=qwen/qwen3.8-27b
 ```
 
 Groq is required for chat and can analyze images when Gemini is not configured. The API keys are used only by the Node API process, never by the renderer. The local proxy listens on loopback by default. Do not expose it to a public network. For remote use, deploy the proxy behind authentication and TLS, then build the renderer with `VITE_COMPANION_API_URL` set to that service.
