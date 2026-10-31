@@ -365,13 +365,14 @@ test('preflight AI requires consent and strips URL paths and query data before p
     assert.match(supplied.pastedMessageAndLinkDomains, /link to bank-login\.invalid; path and query removed/i);
     assert.doesNotMatch(supplied.pastedMessageAndLinkDomains, /secret-token|session=private/);
     assert.match(supplied.localChecks[0], /link to bit\.ly; path and query removed/i);
-    return jsonResponse({ choices: [{ message: { content: JSON.stringify({
+    const analysis = JSON.stringify({
       riskLevel: 'high',
       explanation: 'This message pressures you to verify an account through an unexpected link.',
       evidence: ['The request uses urgency and a non-official host.'],
       nextStep: 'Do not use the link; open the known site directly.',
       steps: ['Report the message to your trusted IT contact.'],
-    }) } }] });
+    }, null, 2);
+    return jsonResponse({ choices: [{ message: { content: `Analysis follows:\n\`\`\`json\n${analysis}\n\`\`\`` } }] });
   });
 
   const base = await withServer(t);
@@ -398,4 +399,20 @@ test('preflight AI requires consent and strips URL paths and query data before p
   assert.equal(body.analysis.riskLevel, 'high');
   assert.match(body.analysis.nextStep, /known site directly/i);
   assert.equal(calls.length, 1);
+});
+
+test('unreadable preflight AI output returns a retry message instead of raw provider text', async (t) => {
+  providerConfig(t, { groq: '', openrouterChat: 'unit-test-preflight-key' });
+  mockProviderFetch(t, async () => jsonResponse({ choices: [{ message: { content: '{"riskLevel": "high", "explanation":' } }] }));
+  const base = await withServer(t);
+  const response = await fetch(`${base}/api/preflight`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ confirmShare: true, content: 'A short suspicious message' }),
+  });
+  const body = await response.json();
+
+  assert.equal(response.status, 502);
+  assert.match(body.error, /unreadable analysis/i);
+  assert.doesNotMatch(body.error, /riskLevel|explanation/);
 });

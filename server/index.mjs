@@ -318,14 +318,46 @@ async function composeReply({ message, screenText, state, history, eventOnly }, 
 }
 
 function parsePreflightAnalysis(text) {
-  let value;
+  const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+  let value = null;
   try {
-    const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
     value = JSON.parse(cleaned);
   } catch {
-    value = { explanation: text };
+    // Some model responses wrap otherwise valid JSON in a sentence or code fence.
+    // Extract a complete object while respecting braces inside quoted strings.
+    for (let start = cleaned.indexOf('{'); start !== -1 && !value; start = cleaned.indexOf('{', start + 1)) {
+      let depth = 0;
+      let quoted = false;
+      let escaped = false;
+      for (let index = start; index < cleaned.length; index += 1) {
+        const character = cleaned[index];
+        if (quoted) {
+          if (escaped) escaped = false;
+          else if (character === '\\') escaped = true;
+          else if (character === '"') quoted = false;
+          continue;
+        }
+        if (character === '"') quoted = true;
+        else if (character === '{') depth += 1;
+        else if (character === '}') {
+          depth -= 1;
+          if (depth === 0) {
+            try {
+              const candidate = JSON.parse(cleaned.slice(start, index + 1));
+              if (candidate && typeof candidate === 'object' && !Array.isArray(candidate)) value = candidate;
+            } catch {
+              // Try a later object if the first brace-delimited section was not JSON.
+            }
+            break;
+          }
+        }
+      }
+    }
   }
-  if (!value || typeof value !== 'object' || Array.isArray(value)) value = { explanation: text };
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('The AI returned an unreadable analysis. Your on-device check is still available; please try again.');
+  }
+  if (value.analysis && typeof value.analysis === 'object' && !Array.isArray(value.analysis)) value = value.analysis;
   const strings = (item, max) => (Array.isArray(item) ? item : [])
     .filter((entry) => typeof entry === 'string')
     .slice(0, max)
