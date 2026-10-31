@@ -54,7 +54,6 @@ function App() {
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [serviceStatus, setServiceStatus] = useState<'checking' | 'ready' | 'missing' | 'offline'>('checking');
-  const [webRiskAvailable, setWebRiskAvailable] = useState(false);
   const [notice, setNotice] = useState('');
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [showSession, setShowSession] = useState(false);
@@ -86,7 +85,6 @@ function App() {
     checkBackend().then((result) => {
       if (cancelled) return;
       setServiceStatus(result.configured.groq || result.configured.openrouterChat ? 'ready' : 'missing');
-      setWebRiskAvailable(result.configured.webRisk);
     }).catch(() => { if (!cancelled) setServiceStatus('offline'); });
     return () => { cancelled = true; };
   }, []);
@@ -313,7 +311,7 @@ function App() {
           <div className="memory-foot"><LockKeyhole size={12} /> Text context is saved on this device. Images aren't saved by this app.</div>
       </section>}
 
-      {page === 'preflight' ? <PreflightPage reputationAvailable={webRiskAvailable} /> : <main className="conversation" ref={conversationRef} aria-label="Conversation" aria-live="polite" tabIndex={0} onScroll={(event) => {
+      {page === 'preflight' ? <PreflightPage /> : <main className="conversation" ref={conversationRef} aria-label="Conversation" aria-live="polite" tabIndex={0} onScroll={(event) => {
         const element = event.currentTarget;
         stickToBottomRef.current = element.scrollHeight - element.scrollTop - element.clientHeight < 80;
       }}>

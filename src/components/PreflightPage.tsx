@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import { analyzeTextLocally, type PreflightLocalResult, type PreflightRiskLevel } from '../lib/preflight.mjs';
 import { sendReputationScan } from '../lib/api';
-import type { WebRiskScanResponse } from '../types';
+import type { CommunityThreatCheck, ReputationScanResponse } from '../types';
 
 const MAX_REPUTATION_URLS = 5;
 
@@ -41,22 +41,25 @@ function LocalAnalysisCard({ result }: { result: PreflightLocalResult }) {
   );
 }
 
-function threatLabel(type: string) {
-  if (type === 'SOCIAL_ENGINEERING') return 'Phishing or deceptive page';
-  if (type === 'MALWARE') return 'Malware';
-  if (type === 'UNWANTED_SOFTWARE') return 'Unwanted software';
-  return type;
+function sourceStatus(check: CommunityThreatCheck) {
+  if (check.status === 'match') return check.source === 'PhishTank' ? 'Listed as a phishing site' : 'Listed for malware distribution';
+  if (check.status === 'no_match') return 'No match in this feed';
+  if (check.status === 'unverified') return 'Reported, but not verified; treat as suspicious';
+  if (check.status === 'not_configured') return check.detail || 'This feed is not configured.';
+  if (check.status === 'not_scanned') return 'Not sent because this is not a public web address.';
+  return check.detail || 'This feed did not return a result.';
 }
 
-function ReputationResults({ scan }: { scan: WebRiskScanResponse }) {
-  const matches = scan.results.filter((result) => result.status === 'match');
-  const noMatches = scan.results.filter((result) => result.status === 'no_match');
-  const incomplete = scan.results.filter((result) => result.status === 'unavailable' || result.status === 'not_scanned');
-  const level: PreflightRiskLevel = matches.length ? 'high' : incomplete.length ? 'caution' : 'none';
+function ReputationResults({ scan }: { scan: ReputationScanResponse }) {
+  const checks = scan.results.flatMap((result) => result.sources.map((source) => ({ host: result.host, source })));
+  const matches = checks.filter(({ source }) => source.status === 'match');
+  const uncertain = checks.filter(({ source }) => ['unverified', 'unavailable', 'not_configured', 'not_scanned'].includes(source.status));
+  const noMatches = checks.filter(({ source }) => source.status === 'no_match');
+  const level: PreflightRiskLevel = matches.length ? 'high' : uncertain.length ? 'caution' : 'none';
   const heading = matches.length
     ? 'Known threat match found'
-    : incomplete.length
-      ? 'Some lookups did not complete'
+    : uncertain.length
+      ? 'Partial or uncertain results'
       : 'No known threat match found';
 
   return (
@@ -65,33 +68,21 @@ function ReputationResults({ scan }: { scan: WebRiskScanResponse }) {
         <RiskIcon level={level} />
         <div><span>{scan.provider.toUpperCase()} · LIVE LOOKUP</span><strong>{heading}</strong></div>
       </div>
-      {matches.length > 0 && <p className="preflight-summary">A URL matched a known unsafe-site list. Do not open it. Verify the message through a contact route you already trust.</p>}
-      {matches.map((result, index) => <div className="reputation-row reputation-match" key={`match-${index}-${result.host}`}>
-        <strong>{result.host}</strong>
-        <span>{result.threatTypes.map(threatLabel).join(', ')}</span>
+      {matches.length > 0 && <p className="preflight-summary">A community feed lists this address. Do not open it. Verify the message through a contact route you already trust.</p>}
+      {checks.map(({ host, source }, index) => <div className={`reputation-row ${source.status === 'match' ? 'reputation-match' : source.status === 'no_match' ? 'reputation-no-match' : 'reputation-incomplete'}`} key={`${index}-${host}-${source.source}`}>
+        <strong>{host} · {source.source}</strong>
+        <span>{sourceStatus(source)}</span>
       </div>)}
-      {noMatches.map((result, index) => <div className="reputation-row reputation-no-match" key={`clear-${index}-${result.host}`}>
-        <strong>{result.host}</strong>
-        <span>No match in the checked threat lists</span>
-      </div>)}
-      {scan.results.filter((result) => result.status === 'unavailable').map((result, index) => <div className="reputation-row reputation-incomplete" key={`error-${index}-${result.host}`}>
-        <strong>{result.host}</strong>
-        <span>{result.detail || 'Lookup failed; there is no reputation verdict for this address.'}</span>
-      </div>)}
-      {scan.results.filter((result) => result.status === 'not_scanned').map((result, index) => <div className="reputation-row reputation-incomplete" key={`skip-${index}`}>
-        <strong>{result.host}</strong>
-        <span>Not sent to the service because it is not a public web address.</span>
-      </div>)}
-      {noMatches.length > 0 && <p className="preflight-limit"><Info size={14} />No match means the checked lists did not identify this URL at lookup time. It does not mean the site is safe.</p>}
-      <p className="preflight-limit"><Info size={14} />The app checks threat-list data; it does not open, crawl, or interact with the website.</p>
+      {noMatches.length > 0 && <p className="preflight-limit"><Info size={14} />A no-match result means that feed did not list the address at lookup time. It does not prove the site is safe.</p>}
+      <p className="preflight-limit"><Info size={14} />PhishTank checks reported phishing URLs; URLhaus checks known malware distribution URLs. The app does not visit or crawl the website.</p>
     </section>
   );
 }
 
-export function PreflightPage({ reputationAvailable }: { reputationAvailable: boolean }) {
+export function PreflightPage() {
   const [content, setContent] = useState('');
   const [localResult, setLocalResult] = useState<PreflightLocalResult | null>(null);
-  const [reputationResult, setReputationResult] = useState<WebRiskScanResponse | null>(null);
+  const [reputationResult, setReputationResult] = useState<ReputationScanResponse | null>(null);
   const [reputationConsent, setReputationConsent] = useState(false);
   const [scanBusy, setScanBusy] = useState(false);
   const [error, setError] = useState('');
@@ -120,7 +111,7 @@ export function PreflightPage({ reputationAvailable }: { reputationAvailable: bo
   };
 
   const handleReputationCheck = async () => {
-    if (!localResult?.links.length || !reputationConsent || !reputationAvailable || scanBusy) return;
+    if (!localResult?.links.length || !reputationConsent || scanBusy) return;
     const controller = new AbortController();
     requestRef.current = controller;
     setScanBusy(true);
@@ -177,13 +168,14 @@ export function PreflightPage({ reputationAvailable }: { reputationAvailable: bo
           {localResult.links.length > MAX_REPUTATION_URLS && <small>Live lookup will check the first {MAX_REPUTATION_URLS} links.</small>}
         </div>}
         {localResult.links.length > 0 && <section className="preflight-external-panel reputation-panel">
-          <div className="preflight-external-heading"><span><ShieldCheck size={16} /> Live threat-list lookup</span><span>THREAT LIST · NO SITE VISIT</span></div>
-          <p>With your permission, up to {MAX_REPUTATION_URLS} URLs are checked against Google Web Risk lists for phishing, malware, and unwanted software. The URL path is sent; query strings and fragments are removed. Remove private or password-reset links first.</p>
-          <label className="preflight-consent"><input type="checkbox" checked={reputationConsent} onChange={(event) => setReputationConsent(event.target.checked)} /> <span>I agree to send these URLs to Google Web Risk for a reputation lookup.</span></label>
-          {!reputationAvailable && <div className="preflight-service-unavailable"><Info size={14} />Live lookup needs a Google Web Risk API key in the local .env file. On-device checks are available without it.</div>}
+          <div className="preflight-external-heading"><span><ShieldCheck size={16} /> Free community threat feeds</span><span>PHISHTANK + URLHAUS · NO SITE VISIT</span></div>
+          <p>With your permission, up to {MAX_REPUTATION_URLS} URLs are checked against PhishTank’s phishing feed and URLhaus’s malware feed. Only the URL host and path are sent; query strings and fragments are removed. Remove private or password-reset links first.</p>
+          <p>PhishTank can be used without a key, with stricter rate limits. URLhaus needs a free Auth-Key for malware checks; without it, those results will be marked not configured. URLhaus’s free community access follows fair-use limits; commercial use may have different terms.</p>
+          <div className="feed-key-links"><a href="https://www.phishtank.org/api_info.php" target="_blank" rel="noreferrer">PhishTank API and free key info</a><a href="https://auth.abuse.ch/" target="_blank" rel="noreferrer">Get a free URLhaus Auth-Key</a></div>
+          <label className="preflight-consent"><input type="checkbox" checked={reputationConsent} onChange={(event) => setReputationConsent(event.target.checked)} /> <span>I agree to send these URLs to PhishTank and, if configured, URLhaus for reputation checks.</span></label>
           {error && <div className="preflight-error" role="alert">{error}</div>}
-          <button className="preflight-external-button" type="button" onClick={() => void handleReputationCheck()} disabled={!reputationConsent || !reputationAvailable || scanBusy}>
-            {scanBusy ? <LoaderCircle className="spin" size={17} /> : <ShieldCheck size={16} />}{scanBusy ? 'Checking threat lists…' : 'Check live threat lists'}
+          <button className="preflight-external-button" type="button" onClick={() => void handleReputationCheck()} disabled={!reputationConsent || scanBusy}>
+            {scanBusy ? <LoaderCircle className="spin" size={17} /> : <ShieldCheck size={16} />}{scanBusy ? 'Checking community feeds…' : 'Check community threat feeds'}
           </button>
         </section>}
         {reputationResult && <ReputationResults scan={reputationResult} />}

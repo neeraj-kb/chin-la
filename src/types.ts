@@ -36,17 +36,21 @@ export type CaptureSource = {
   thumbnail: string | null;
 };
 
-export type WebRiskCheckResult = {
-  host: string;
-  status: 'match' | 'no_match' | 'unavailable' | 'not_scanned';
-  threatTypes: string[];
+export type CommunityThreatCheck = {
+  source: 'PhishTank' | 'URLhaus';
+  status: 'match' | 'no_match' | 'unverified' | 'unavailable' | 'not_configured' | 'not_scanned';
   detail?: string;
 };
 
-export type WebRiskScanResponse = {
-  provider: 'Google Web Risk';
+export type CommunityUrlCheck = {
+  host: string;
+  sources: CommunityThreatCheck[];
+};
+
+export type ReputationScanResponse = {
+  provider: 'Community threat feeds';
   checkedAt: string;
-  results: WebRiskCheckResult[];
+  results: CommunityUrlCheck[];
 };
 
 export const emptySessionState: SessionState = {

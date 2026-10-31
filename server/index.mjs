@@ -39,13 +39,11 @@ const responseShape = {
   shouldInterrupt: 'boolean',
 };
 
-const WEB_RISK_THREAT_TYPES = ['MALWARE', 'SOCIAL_ENGINEERING', 'UNWANTED_SOFTWARE'];
-
 function safeText(value, limit = 1600) {
   return typeof value === 'string' ? value.slice(0, limit) : '';
 }
 
-function normalizeWebRiskUrl(value) {
+function normalizeReputationUrl(value) {
   if (typeof value !== 'string' || value.length > 2048) return null;
   const candidate = value.trim();
   if (!candidate) return null;
@@ -66,26 +64,57 @@ function normalizeWebRiskUrl(value) {
   }
 }
 
-async function queryWebRisk(url, apiKey, signal) {
-  const endpoint = new URL('https://webrisk.googleapis.com/v1/uris:search');
-  endpoint.searchParams.set('key', apiKey);
-  endpoint.searchParams.set('uri', url);
-  for (const threatType of WEB_RISK_THREAT_TYPES) endpoint.searchParams.append('threatTypes', threatType);
-
+function combinedTimeout(signal) {
   const timeoutSignal = AbortSignal.timeout(10_000);
-  const requestSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
-  const response = await fetch(endpoint, { signal: requestSignal });
+  return signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
+}
+
+function isYes(value) {
+  return value === true || (typeof value === 'string' && value.toLowerCase() === 'yes');
+}
+
+async function queryPhishTank(url, appKey, signal) {
+  const body = new URLSearchParams({ url, format: 'json' });
+  if (appKey) body.set('app_key', appKey);
+  const response = await fetch('https://checkurl.phishtank.com/checkurl/', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'User-Agent': 'Screenwise-Companion/0.1 (community threat-list lookup)',
+    },
+    body,
+    signal: combinedTimeout(signal),
+  });
   if (!response.ok) {
-    if (response.status === 401 || response.status === 403) throw new Error('Check that the Web Risk API is enabled and the API key restrictions allow this request.');
-    if (response.status === 429) throw new Error('The Web Risk request quota was reached. Try again later.');
-    throw new Error(`Google Web Risk returned HTTP ${response.status}.`);
+    if (response.status === 429 || response.status === 509) throw new Error('PhishTank rate limit reached. Try again later or add a free application key.');
+    throw new Error(`PhishTank returned HTTP ${response.status}.`);
   }
   const payload = await response.json().catch(() => null);
-  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new Error('Google Web Risk returned an unreadable result.');
-  const threatTypes = Array.isArray(payload.threat?.threatTypes)
-    ? payload.threat.threatTypes.filter((item) => WEB_RISK_THREAT_TYPES.includes(item))
-    : [];
-  return threatTypes;
+  const result = payload?.results;
+  if (!result || typeof result !== 'object' || Array.isArray(result)) throw new Error('PhishTank returned an unreadable result.');
+  if (!isYes(result.in_database) || !isYes(result.valid)) return 'no_match';
+  return isYes(result.verified) ? 'match' : 'unverified';
+}
+
+async function queryUrlhaus(url, authKey, signal) {
+  const response = await fetch('https://urlhaus-api.abuse.ch/v1/url/', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Auth-Key': authKey,
+      'User-Agent': 'Screenwise-Companion/0.1 (community threat-list lookup)',
+    },
+    body: new URLSearchParams({ url }),
+    signal: combinedTimeout(signal),
+  });
+  if (!response.ok) {
+    if (response.status === 429) throw new Error('URLhaus request limit reached. Try again later.');
+    throw new Error(`URLhaus returned HTTP ${response.status}.`);
+  }
+  const payload = await response.json().catch(() => null);
+  if (payload?.query_status === 'ok') return 'match';
+  if (payload?.query_status === 'no_results') return 'no_match';
+  throw new Error('URLhaus returned an unreadable result.');
 }
 
 function providerError(payload, provider, status) {
@@ -352,7 +381,6 @@ function registerRoutes(app) {
         groq: Boolean(process.env.GROQ_API_KEY),
         openrouter: Boolean(keys.vision || keys.chat),
         openrouterChat: Boolean(keys.chat),
-        webRisk: Boolean(process.env.WEB_RISK_API_KEY),
       },
     });
   });
@@ -387,37 +415,48 @@ function registerRoutes(app) {
     res.on('close', () => { if (!res.writableEnded) abort(); });
     try {
       if (req.body?.confirmShare !== true) {
-        return res.status(400).json({ error: 'Confirm before sending URLs to Google Web Risk.' });
+        return res.status(400).json({ error: 'Confirm before sending URLs to the community threat-list services.' });
       }
       const requestedUrls = Array.isArray(req.body?.urls)
         ? req.body.urls.filter((item) => typeof item === 'string').slice(0, 5)
         : [];
       if (!requestedUrls.length) return res.status(400).json({ error: 'Paste at least one web address to check.' });
-      const apiKey = safeText(process.env.WEB_RISK_API_KEY, 1000).trim();
-      if (!apiKey) return res.status(503).json({ error: 'Live reputation checks are not configured. On-device checks still work.' });
+      const phishTankKey = safeText(process.env.PHISHTANK_APP_KEY, 1000).trim();
+      const urlhausKey = safeText(process.env.URLHAUS_AUTH_KEY, 1000).trim();
 
       const results = [];
       const seen = new Set();
       for (const value of requestedUrls) {
-        const target = normalizeWebRiskUrl(value);
+        const target = normalizeReputationUrl(value);
         if (!target) {
-          results.push({ host: 'Address not shared', status: 'not_scanned', threatTypes: [] });
+          results.push({
+            host: 'Address not shared',
+            sources: [
+              { source: 'PhishTank', status: 'not_scanned' },
+              { source: 'URLhaus', status: 'not_scanned' },
+            ],
+          });
           continue;
         }
         if (seen.has(target.url)) continue;
         seen.add(target.url);
-        try {
-          const threatTypes = await queryWebRisk(target.url, apiKey, controller.signal);
-          results.push({ host: target.host, status: threatTypes.length ? 'match' : 'no_match', threatTypes });
-        } catch (error) {
-          if (error.name === 'AbortError') throw error;
-          const detail = error instanceof Error && /^Check that|^The Web Risk request quota|^Google Web Risk returned HTTP/.test(error.message)
-            ? error.message
-            : 'Google Web Risk did not return a result. Try again later.';
-          results.push({ host: target.host, status: 'unavailable', threatTypes: [], detail });
-        }
+        const phishTankCheck = queryPhishTank(target.url, phishTankKey, controller.signal)
+          .then((status) => ({ source: 'PhishTank', status }))
+          .catch((error) => {
+            if (error.name === 'AbortError') throw error;
+            return { source: 'PhishTank', status: 'unavailable', detail: error.message || 'PhishTank did not return a result.' };
+          });
+        const urlhausCheck = urlhausKey
+          ? queryUrlhaus(target.url, urlhausKey, controller.signal)
+            .then((status) => ({ source: 'URLhaus', status }))
+            .catch((error) => {
+              if (error.name === 'AbortError') throw error;
+              return { source: 'URLhaus', status: 'unavailable', detail: error.message || 'URLhaus did not return a result.' };
+            })
+          : Promise.resolve({ source: 'URLhaus', status: 'not_configured', detail: 'Add a free URLhaus Auth-Key to enable malware-feed checks.' });
+        results.push({ host: target.host, sources: await Promise.all([phishTankCheck, urlhausCheck]) });
       }
-      res.json({ provider: 'Google Web Risk', checkedAt: new Date().toISOString(), results });
+      res.json({ provider: 'Community threat feeds', checkedAt: new Date().toISOString(), results });
     } catch (error) {
       if (res.headersSent) return;
       const message = error.name === 'AbortError' ? 'Request cancelled.' : 'The reputation scan could not finish. Your on-device results are still available.';
@@ -433,7 +472,7 @@ export function startServer() {
   return app.listen(port, host, () => {
     console.log(`Screenwise API listening at http://${host}:${port}`);
     const keys = openRouterKeys();
-    console.log(`Provider keys configured: Gemini=${Boolean(process.env.GEMINI_API_KEY)}, Groq=${Boolean(process.env.GROQ_API_KEY)}, OpenRouter=${Boolean(keys.vision || keys.chat)}, WebRisk=${Boolean(process.env.WEB_RISK_API_KEY)}`);
+    console.log(`Provider keys configured: Gemini=${Boolean(process.env.GEMINI_API_KEY)}, Groq=${Boolean(process.env.GROQ_API_KEY)}, OpenRouter=${Boolean(keys.vision || keys.chat)}`);
   });
 }
 
