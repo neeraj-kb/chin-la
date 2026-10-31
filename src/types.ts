@@ -37,8 +37,8 @@ export type CaptureSource = {
 };
 
 export type CommunityThreatCheck = {
-  source: 'PhishTank' | 'URLhaus';
-  status: 'match' | 'no_match' | 'unverified' | 'unavailable' | 'not_configured' | 'not_scanned';
+  source: 'PhishTank';
+  status: 'match' | 'no_match' | 'unverified' | 'unavailable' | 'not_scanned';
   detail?: string;
 };
 
@@ -48,7 +48,7 @@ export type CommunityUrlCheck = {
 };
 
 export type ReputationScanResponse = {
-  provider: 'Community threat feeds';
+  provider: 'PhishTank community feed';
   checkedAt: string;
   results: CommunityUrlCheck[];
 };

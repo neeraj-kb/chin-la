@@ -4,6 +4,10 @@ const shortenerHosts = new Set([
   'bit.ly', 'buff.ly', 'cutt.ly', 'goo.gl', 'is.gd', 'ow.ly', 'rb.gy',
   'shorturl.at', 't.co', 'tinyurl.com', 'trib.al', 'tiny.cc',
 ]);
+const redirectParameterNames = new Set([
+  'dest', 'destination', 'go', 'goto', 'link', 'next', 'redirect', 'redirect_uri',
+  'redirect_url', 'return', 'return_url', 'returnurl', 'target', 'to', 'u', 'url',
+]);
 
 function trimUrl(value) {
   return value.replace(/[.,!?;:)\]}]+$/g, '');
@@ -38,6 +42,26 @@ function extractLinks(text) {
   return links;
 }
 
+function findEmbeddedRedirects(links) {
+  const destinations = [];
+  const findings = [];
+  for (const link of links) {
+    for (const [parameter, value] of link.parsed.searchParams.entries()) {
+      if (!redirectParameterNames.has(parameter.toLowerCase())) continue;
+      const candidate = value.trim().startsWith('//') ? `https:${value.trim()}` : value.trim();
+      const looksLikeUrl = /^https?:\/\//i.test(candidate)
+        || /^(?:[a-z0-9-]+\.)+[a-z0-9-]{2,}(?::\d+)?(?:[/?#]|$)/i.test(candidate)
+        || /^\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?(?:[/?#]|$)/.test(candidate);
+      if (!looksLikeUrl) continue;
+      const destination = parseUrl(candidate);
+      if (!destination || !destination.host.includes('.') || hostsRelated(link.host, destination.host)) continue;
+      if (!destinations.some((item) => item.raw === destination.raw)) destinations.push(destination);
+      findings.push({ wrapperHost: link.host, destinationHost: destination.host });
+    }
+  }
+  return { destinations, findings };
+}
+
 function hostsRelated(left, right) {
   return left === right || left.endsWith(`.${right}`) || right.endsWith(`.${left}`);
 }
@@ -69,13 +93,22 @@ function findLinkMismatches(text) {
 
 export function analyzeTextLocally(value) {
   const text = typeof value === 'string' ? value.slice(0, 8000) : '';
-  const links = extractLinks(text);
+  const visibleLinks = extractLinks(text);
+  const embeddedRedirects = findEmbeddedRedirects(visibleLinks);
+  const links = [...visibleLinks];
   const findings = [];
   const addFinding = (id, severity, title, detail) => {
     if (!findings.some((finding) => finding.id === id && finding.detail === detail)) {
       findings.push({ id, severity, title, detail });
     }
   };
+
+  for (const destination of embeddedRedirects.destinations) {
+    if (!links.some((link) => link.raw === destination.raw) && links.length < 20) links.push(destination);
+  }
+  for (const redirect of embeddedRedirects.findings) {
+    addFinding('embedded-redirect', 'caution', 'Link contains a second destination', `A link on ${redirect.wrapperHost} includes a redirect address for ${redirect.destinationHost}. Check both destinations before opening it.`);
+  }
 
   if (/\b(?:javascript|data|file):/i.test(text)) {
     addFinding('unsafe-scheme', 'high', 'Unusual link type', 'The text contains a link using a browser or local-file scheme instead of a normal web address.');
@@ -102,6 +135,9 @@ export function analyzeTextLocally(value) {
     }
     if (link.raw.length > 180) {
       addFinding('long-url', 'caution', 'Link is unusually long', 'Long addresses can hide extra routing or tracking details. Verify the destination through a trusted route.');
+    }
+    if (link.host.split('.').length >= 5) {
+      addFinding('many-subdomains', 'caution', 'Link uses many nested domain labels', `The address ${link.host} has several nested labels. Read the final website name carefully before opening it.`);
     }
   }
 

@@ -20,7 +20,7 @@ Screenwise acts as a screen-aware cybersecurity companion. It explains what it c
 4. OpenRouter routes the screen description and the user’s question to Qwen 3.8 27B for a short explanation, relevant context, and a clear next step. A configured native Groq key can serve as a chat fallback. The assistant also updates the current goal and progress.
 5. The user can ask follow-up questions, pause monitoring, or stop it at any time. When monitoring is paused or stopped, the companion relies on the saved text context rather than a new screen image.
 
-The **Before you click** page runs on-device checks for destination mismatches, shortened or encoded domains, unusual ports, pressure language, requests for credentials or payment, and risky attachment names. After a separate opt-in, it checks up to five URLs against the PhishTank community phishing feed and, when configured, URLhaus's malware feed. Only the URL host and path are sent; query strings and fragments are removed. The app never opens or crawls the supplied site and does not send the pasted message to either feed. A feed match is a warning; no match is not proof of safety. PhishTank can be queried without an app key at stricter limits, while URLhaus requires a free Auth-Key. [PhishTank API](https://www.phishtank.org/api_info.php) · [URLhaus API](https://urlhaus.abuse.ch/api/)
+The **Before you click** page checks message patterns and URL structure on-device, including mismatched destinations and redirect addresses embedded inside links. After a separate opt-in, it checks up to five URLs against the PhishTank community phishing feed. Only the URL host and path are sent; query strings and fragments are removed. The app never opens or crawls the supplied site and does not send the pasted message to the feed. A match is a warning; no match is not proof of safety. PhishTank's simple lookup can be used without an app key, with stricter rate limits. [PhishTank API](https://www.phishtank.org/api_info.php)
 
 The assistant is designed to avoid interrupting for routine screen changes, while surfacing a useful next step when one is apparent. It should say when the screen is unclear instead of guessing.
 
@@ -43,7 +43,7 @@ flowchart LR
 
 - **Windows desktop app:** Electron provides the always-on-top companion window, screen/window picker, and Start, Pause, Resume, and Stop controls. A React and Vite interface presents the robot companion, chat, explanations, and session progress.
 - **Screen awareness:** Electron captures a user-selected source. The app compares small in-memory fingerprints locally and sends a frame for analysis only when needed. Screen images are not saved to disk by the app.
-- **Pre-click checks:** Message and URL pattern checks run locally first. A separate, consent-gated lookup checks URLs against PhishTank and, if configured, URLhaus. It does not use the chat model or open the supplied links.
+- **Pre-click checks:** Message and URL pattern checks run locally first, including inspection of destinations embedded in common redirect parameters. A separate, consent-gated PhishTank lookup checks known phishing reports. It does not use the chat model or open the supplied links.
 - **AI proxy:** A local Express service keeps provider keys out of the renderer. OpenRouter provides the primary image and chat models through one API. Optional direct Gemini and Groq keys provide fallbacks.
 - **Session memory:** A compact text history and progress state are stored in local browser storage. The user can clear them in the app. Images are not included in that saved history.
 
@@ -52,7 +52,7 @@ flowchart LR
 - Monitoring starts only after the user presses **Start** and chooses a screen or window.
 - **Pause** stops sending new frames; **Stop** ends monitoring and releases the selected source.
 - The app and local proxy do not write screen frames to disk or log request bodies. Frames are sent to the configured AI provider for analysis, so review that provider’s data handling terms before using Screenwise with sensitive information.
-- Pasted pre-click content stays in memory for local checks and is not saved by the app. The live reputation lookup sends only up to five detected URLs to PhishTank and, if configured, URLhaus after the user opts in; query strings and fragments are stripped, but the host and path are sent. Remove private password-reset or account links before opting in. The app does not visit or crawl the submitted website.
+- Pasted pre-click content stays in memory for local checks and is not saved by the app. The live reputation lookup sends only up to five detected URLs to PhishTank after the user opts in; query strings and fragments are stripped, but the host and path are sent. Remove private password-reset or account links before opting in. The app does not visit or crawl the submitted website.
 - API keys stay in the local `.env` file and are used by the Node proxy, not the desktop renderer. `.env` is excluded from Git.
 - The assistant gives guidance for the user to perform. It does not carry out the recommended actions.
 
@@ -61,7 +61,7 @@ flowchart LR
 1. Install Node.js 22.12 or newer.
 2. From this repository folder, run `npm install`.
 3. Run `npm run setup:electron` to install Electron’s Windows runtime.
-4. Copy `.env.example` to `.env` and add an OpenRouter API key. You can use one key for both tasks or separate vision and chat keys. Direct Gemini and Groq keys are optional fallbacks. Community threat-feed checks do not need a paid cloud billing account; optional free keys can improve feed access.
+4. Copy `.env.example` to `.env` and add an OpenRouter API key. You can use one key for both tasks or separate vision and chat keys. Direct Gemini and Groq keys are optional fallbacks. The on-device scanner and basic PhishTank lookup do not require paid API keys.
 5. Run `npm run dev`.
 
 This starts the local API proxy, the Vite interface, and the Electron desktop window. The development proxy uses `127.0.0.1:8788` to avoid common local port conflicts; running the proxy on its own still defaults to `127.0.0.1:8787`. The current project runs from source; a Windows installer has not been configured.
@@ -88,7 +88,7 @@ GROQ_MODEL=qwen/qwen3.8-27b
 
 If `.env` contains older lowercase `api1` and `api2` entries, the server uses `api1` for OpenRouter image analysis and `api2` for chat unless standard OpenRouter variables are set.
 
-The pre-click scanner runs its pattern checks on-device at no cost. Its optional, consent-gated reputation lookup uses two community feeds: [PhishTank](https://www.phishtank.org/api_info.php) checks reported phishing URLs and can be queried without an app key, with stricter limits; [URLhaus](https://urlhaus.abuse.ch/api/) checks malware distribution URLs and requires a free Auth-Key. Add `PHISHTANK_APP_KEY` and `URLHAUS_AUTH_KEY` to `.env` when available. The community feeds are free for this noncommercial hackathon use under their limits; URLhaus says commercial or for-profit use may require a paid subscription under its [current terms](https://abuse.ch/terms-of-use/). These feeds cover known reports, not every malicious site; a no-match result is not a safety verdict. The scanner sends the URL host and path, with query strings and fragments removed, only after user consent.
+The pre-click scanner runs its pattern checks on-device at no cost. Its optional, consent-gated reputation lookup checks [PhishTank](https://www.phishtank.org/api_info.php), a community feed of reported phishing URLs. A basic lookup can run without an app key, though rate limits are stricter. The scanner covers phishing reports only, not malware downloads; no match is not a safety verdict. It sends the URL host and path, with query strings and fragments removed, only after user consent.
 
 For remote use, deploy the proxy behind authentication and TLS, then set `VITE_COMPANION_API_URL` before building the renderer. Do not expose the local proxy directly to a public network.
 

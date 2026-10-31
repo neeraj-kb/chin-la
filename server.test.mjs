@@ -7,7 +7,7 @@ process.env.OPENROUTER_VISION_MODEL = 'test-openrouter-vision-model';
 process.env.OPENROUTER_CHAT_MODEL = 'test-openrouter-chat-model';
 // Simulate an existing .env copied from the old example; the server must upgrade it.
 process.env.GROQ_MODEL = 'qwen/qwen3.6-27b';
-for (const name of ['GEMINI_API_KEY', 'GROQ_API_KEY', 'OPENROUTER_API_KEY', 'OPENROUTER_VISION_API_KEY', 'OPENROUTER_CHAT_API_KEY', 'PHISHTANK_APP_KEY', 'URLHAUS_AUTH_KEY', 'api1', 'api2']) {
+for (const name of ['GEMINI_API_KEY', 'GROQ_API_KEY', 'OPENROUTER_API_KEY', 'OPENROUTER_VISION_API_KEY', 'OPENROUTER_CHAT_API_KEY', 'api1', 'api2']) {
   process.env[name] = 'unit-test-disabled-key';
 }
 const { createApp } = await import('./server/index.mjs');
@@ -40,12 +40,10 @@ function providerConfig(t, {
   openrouter = '',
   openrouterVision = '',
   openrouterChat = '',
-  phishTankKey = '',
-  urlhausKey = '',
   api1 = '',
   api2 = '',
 } = {}) {
-  const names = ['GEMINI_API_KEY', 'GROQ_API_KEY', 'OPENROUTER_API_KEY', 'OPENROUTER_VISION_API_KEY', 'OPENROUTER_CHAT_API_KEY', 'PHISHTANK_APP_KEY', 'URLHAUS_AUTH_KEY', 'api1', 'api2'];
+  const names = ['GEMINI_API_KEY', 'GROQ_API_KEY', 'OPENROUTER_API_KEY', 'OPENROUTER_VISION_API_KEY', 'OPENROUTER_CHAT_API_KEY', 'api1', 'api2'];
   const previous = Object.fromEntries(names.map((name) => [name, process.env[name]]));
   Object.assign(process.env, {
     GEMINI_API_KEY: gemini,
@@ -53,8 +51,6 @@ function providerConfig(t, {
     OPENROUTER_API_KEY: openrouter,
     OPENROUTER_VISION_API_KEY: openrouterVision,
     OPENROUTER_CHAT_API_KEY: openrouterChat,
-    PHISHTANK_APP_KEY: phishTankKey,
-    URLHAUS_AUTH_KEY: urlhausKey,
     api1,
     api2,
   });
@@ -82,7 +78,7 @@ function mockProviderFetch(t, handler) {
   const realFetch = globalThis.fetch;
   t.mock.method(globalThis, 'fetch', async (input, init) => {
     const url = typeof input === 'string' ? input : input.url || input.href;
-    if (url.startsWith('https://generativelanguage.googleapis.com/') || url.startsWith('https://checkurl.phishtank.com/') || url.startsWith('https://urlhaus-api.abuse.ch/') || url === GROQ_URL || url === OPENROUTER_URL) {
+    if (url.startsWith('https://generativelanguage.googleapis.com/') || url.startsWith('https://checkurl.phishtank.com/') || url === GROQ_URL || url === OPENROUTER_URL) {
       return handler(url, init);
     }
     return realFetch(input, init);
@@ -353,31 +349,22 @@ test('provider failures return a recoverable response and never include configur
   assert.doesNotMatch(body.error, /unit-test-(?:gemini|groq)-key/);
 });
 
-test('reputation scan requires consent and checks both community feeds without sharing URL query data', async (t) => {
-  providerConfig(t, { groq: '', phishTankKey: 'unit-test-phishtank-key', urlhausKey: 'unit-test-urlhaus-key' });
+test('reputation scan requires consent and checks PhishTank without sharing URL query data or needing a key', async (t) => {
+  providerConfig(t, { groq: '' });
   const sentUrls = [];
   mockProviderFetch(t, async (url, init) => {
     const endpoint = new URL(url);
     const body = new URLSearchParams(init.body);
-    if (endpoint.hostname === 'checkurl.phishtank.com') {
-      assert.equal(endpoint.pathname, '/checkurl/');
-      assert.match(init.headers['User-Agent'], /Screenwise-Companion/);
-      assert.equal(body.get('app_key'), 'unit-test-phishtank-key');
-      sentUrls.push(body.get('url'));
-      assert.doesNotMatch(body.get('url'), /session=private|private@example/);
-      if (body.get('url').startsWith('https://bad.example.org/')) {
-        return jsonResponse({ results: { in_database: 'yes', valid: 'yes', verified: 'yes' } });
-      }
-      return jsonResponse({ results: { in_database: 'no', valid: 'no', verified: 'no' } });
-    }
-    assert.equal(endpoint.hostname, 'urlhaus-api.abuse.ch');
-    assert.equal(endpoint.pathname, '/v1/url/');
-    assert.equal(init.headers['Auth-Key'], 'unit-test-urlhaus-key');
+    assert.equal(endpoint.hostname, 'checkurl.phishtank.com');
+    assert.equal(endpoint.pathname, '/checkurl/');
+    assert.match(init.headers['User-Agent'], /Screenwise-Companion/);
+    assert.equal(body.has('app_key'), false);
     sentUrls.push(body.get('url'));
     assert.doesNotMatch(body.get('url'), /session=private|private@example/);
-    return body.get('url').startsWith('https://bad.example.org/')
-      ? jsonResponse({ query_status: 'ok' })
-      : jsonResponse({ query_status: 'no_results' });
+    if (body.get('url').startsWith('https://bad.example.org/')) {
+      return jsonResponse({ results: { in_database: 'yes', valid: 'yes', verified: 'yes' } });
+    }
+    return jsonResponse({ results: { in_database: 'no', valid: 'no', verified: 'no' } });
   });
 
   const base = await withServer(t);
@@ -398,19 +385,19 @@ test('reputation scan requires consent and checks both community feeds without s
   const result = await response.json();
 
   assert.equal(response.status, 200);
-  assert.equal(result.provider, 'Community threat feeds');
+  assert.equal(result.provider, 'PhishTank community feed');
   assert.deepEqual(sentUrls.sort(), [
-    'https://bad.example.org/reset/confirm', 'https://bad.example.org/reset/confirm',
-    'https://example.org/help', 'https://example.org/help',
+    'https://bad.example.org/reset/confirm',
+    'https://example.org/help',
   ]);
   assert.deepEqual(result.results.map(({ host, sources }) => ({ host, sources: sources.map(({ source, status }) => ({ source, status })) })), [
-    { host: 'bad.example.org', sources: [{ source: 'PhishTank', status: 'match' }, { source: 'URLhaus', status: 'match' }] },
-    { host: 'example.org', sources: [{ source: 'PhishTank', status: 'no_match' }, { source: 'URLhaus', status: 'no_match' }] },
+    { host: 'bad.example.org', sources: [{ source: 'PhishTank', status: 'match' }] },
+    { host: 'example.org', sources: [{ source: 'PhishTank', status: 'no_match' }] },
   ]);
-  assert.doesNotMatch(JSON.stringify(result), /session=private|private@example|unit-test-(?:phishtank|urlhaus)-key/);
+  assert.doesNotMatch(JSON.stringify(result), /session=private|private@example/);
 });
 
-test('reputation scan skips local/non-web addresses and reports a missing free URLhaus key as incomplete', async (t) => {
+test('reputation scan skips local and non-web addresses', async (t) => {
   providerConfig(t, { groq: '' });
   const sentUrls = [];
   mockProviderFetch(t, async (url, init) => {
@@ -428,20 +415,16 @@ test('reputation scan skips local/non-web addresses and reports a missing free U
   assert.equal(response.status, 200);
   assert.deepEqual(sentUrls, ['https://example.org/check']);
   assert.deepEqual(result.results.slice(0, 3).map(({ sources }) => sources.map(({ status }) => status)), [
-    ['not_scanned', 'not_scanned'], ['not_scanned', 'not_scanned'], ['not_scanned', 'not_scanned'],
+    ['not_scanned'], ['not_scanned'], ['not_scanned'],
   ]);
   assert.deepEqual(result.results[3].sources.map(({ source, status }) => ({ source, status })), [
     { source: 'PhishTank', status: 'no_match' },
-    { source: 'URLhaus', status: 'not_configured' },
   ]);
 });
 
-test('reputation scan marks feed errors as unavailable without exposing keys', async (t) => {
-  providerConfig(t, { groq: '', phishTankKey: 'unit-test-phishtank-key', urlhausKey: 'unit-test-urlhaus-key' });
-  mockProviderFetch(t, async (url) => {
-    if (url.includes('phishtank')) return jsonResponse({ error: { message: 'rate limited' } }, 429);
-    return jsonResponse({ query_status: 'no_results' });
-  });
+test('reputation scan marks PhishTank rate limits as unavailable', async (t) => {
+  providerConfig(t, { groq: '' });
+  mockProviderFetch(t, async () => jsonResponse({ error: { message: 'rate limited' } }, 429));
   const base = await withServer(t);
   const response = await fetch(`${base}/api/reputation-scan`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -451,8 +434,6 @@ test('reputation scan marks feed errors as unavailable without exposing keys', a
   assert.equal(response.status, 200);
   assert.deepEqual(result.results[0].sources.map(({ source, status }) => ({ source, status })), [
     { source: 'PhishTank', status: 'unavailable' },
-    { source: 'URLhaus', status: 'no_match' },
   ]);
   assert.match(result.results[0].sources[0].detail, /rate limit/i);
-  assert.doesNotMatch(JSON.stringify(result), /unit-test-(?:phishtank|urlhaus)-key/);
 });

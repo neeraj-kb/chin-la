@@ -43,3 +43,22 @@ test('flags an unusually long URL as caution without labeling it malicious', () 
   assert.equal(result.riskLevel, 'caution');
   assert.ok(result.findings.some((finding) => finding.id === 'long-url'));
 });
+
+test('finds and reports a different destination embedded in a redirect parameter', () => {
+  const result = analyzeTextLocally('Open https://links.example.org/go?next=https%3A%2F%2Fsignin-check.example.net%2Faccount');
+  assert.equal(result.riskLevel, 'caution');
+  assert.ok(result.findings.some((finding) => finding.id === 'embedded-redirect' && /signin-check\.example\.net/.test(finding.detail)));
+  assert.deepEqual(result.links.map((link) => link.host), ['links.example.org', 'signin-check.example.net']);
+});
+
+test('flags URLs with several nested domain labels for closer review', () => {
+  const result = analyzeTextLocally('Review https://support.login.account.verify.example.org/');
+  assert.equal(result.riskLevel, 'caution');
+  assert.ok(result.findings.some((finding) => finding.id === 'many-subdomains'));
+});
+
+test('does not treat a non-URL redirect parameter as a second destination', () => {
+  const result = analyzeTextLocally('Open https://links.example.org/go?u=83920');
+  assert.equal(result.riskLevel, 'none');
+  assert.ok(!result.findings.some((finding) => finding.id === 'embedded-redirect'));
+});

@@ -73,9 +73,8 @@ function isYes(value) {
   return value === true || (typeof value === 'string' && value.toLowerCase() === 'yes');
 }
 
-async function queryPhishTank(url, appKey, signal) {
+async function queryPhishTank(url, signal) {
   const body = new URLSearchParams({ url, format: 'json' });
-  if (appKey) body.set('app_key', appKey);
   const response = await fetch('https://checkurl.phishtank.com/checkurl/', {
     method: 'POST',
     headers: {
@@ -86,7 +85,7 @@ async function queryPhishTank(url, appKey, signal) {
     signal: combinedTimeout(signal),
   });
   if (!response.ok) {
-    if (response.status === 429 || response.status === 509) throw new Error('PhishTank rate limit reached. Try again later or add a free application key.');
+    if (response.status === 429 || response.status === 509) throw new Error('PhishTank rate limit reached. Try again later. On-device checks are still available.');
     throw new Error(`PhishTank returned HTTP ${response.status}.`);
   }
   const payload = await response.json().catch(() => null);
@@ -94,27 +93,6 @@ async function queryPhishTank(url, appKey, signal) {
   if (!result || typeof result !== 'object' || Array.isArray(result)) throw new Error('PhishTank returned an unreadable result.');
   if (!isYes(result.in_database) || !isYes(result.valid)) return 'no_match';
   return isYes(result.verified) ? 'match' : 'unverified';
-}
-
-async function queryUrlhaus(url, authKey, signal) {
-  const response = await fetch('https://urlhaus-api.abuse.ch/v1/url/', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'Auth-Key': authKey,
-      'User-Agent': 'Screenwise-Companion/0.1 (community threat-list lookup)',
-    },
-    body: new URLSearchParams({ url }),
-    signal: combinedTimeout(signal),
-  });
-  if (!response.ok) {
-    if (response.status === 429) throw new Error('URLhaus request limit reached. Try again later.');
-    throw new Error(`URLhaus returned HTTP ${response.status}.`);
-  }
-  const payload = await response.json().catch(() => null);
-  if (payload?.query_status === 'ok') return 'match';
-  if (payload?.query_status === 'no_results') return 'no_match';
-  throw new Error('URLhaus returned an unreadable result.');
 }
 
 function providerError(payload, provider, status) {
@@ -415,15 +393,12 @@ function registerRoutes(app) {
     res.on('close', () => { if (!res.writableEnded) abort(); });
     try {
       if (req.body?.confirmShare !== true) {
-        return res.status(400).json({ error: 'Confirm before sending URLs to the community threat-list services.' });
+        return res.status(400).json({ error: 'Confirm before sending URLs to the PhishTank community feed.' });
       }
       const requestedUrls = Array.isArray(req.body?.urls)
         ? req.body.urls.filter((item) => typeof item === 'string').slice(0, 5)
         : [];
       if (!requestedUrls.length) return res.status(400).json({ error: 'Paste at least one web address to check.' });
-      const phishTankKey = safeText(process.env.PHISHTANK_APP_KEY, 1000).trim();
-      const urlhausKey = safeText(process.env.URLHAUS_AUTH_KEY, 1000).trim();
-
       const results = [];
       const seen = new Set();
       for (const value of requestedUrls) {
@@ -431,32 +406,21 @@ function registerRoutes(app) {
         if (!target) {
           results.push({
             host: 'Address not shared',
-            sources: [
-              { source: 'PhishTank', status: 'not_scanned' },
-              { source: 'URLhaus', status: 'not_scanned' },
-            ],
+            sources: [{ source: 'PhishTank', status: 'not_scanned' }],
           });
           continue;
         }
         if (seen.has(target.url)) continue;
         seen.add(target.url);
-        const phishTankCheck = queryPhishTank(target.url, phishTankKey, controller.signal)
+        const phishTankCheck = queryPhishTank(target.url, controller.signal)
           .then((status) => ({ source: 'PhishTank', status }))
           .catch((error) => {
             if (error.name === 'AbortError') throw error;
             return { source: 'PhishTank', status: 'unavailable', detail: error.message || 'PhishTank did not return a result.' };
           });
-        const urlhausCheck = urlhausKey
-          ? queryUrlhaus(target.url, urlhausKey, controller.signal)
-            .then((status) => ({ source: 'URLhaus', status }))
-            .catch((error) => {
-              if (error.name === 'AbortError') throw error;
-              return { source: 'URLhaus', status: 'unavailable', detail: error.message || 'URLhaus did not return a result.' };
-            })
-          : Promise.resolve({ source: 'URLhaus', status: 'not_configured', detail: 'Add a free URLhaus Auth-Key to enable malware-feed checks.' });
-        results.push({ host: target.host, sources: await Promise.all([phishTankCheck, urlhausCheck]) });
+        results.push({ host: target.host, sources: [await phishTankCheck] });
       }
-      res.json({ provider: 'Community threat feeds', checkedAt: new Date().toISOString(), results });
+      res.json({ provider: 'PhishTank community feed', checkedAt: new Date().toISOString(), results });
     } catch (error) {
       if (res.headersSent) return;
       const message = error.name === 'AbortError' ? 'Request cancelled.' : 'The reputation scan could not finish. Your on-device results are still available.';
