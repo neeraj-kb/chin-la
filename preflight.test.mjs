@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { analyzeTextLocally, redactLinksForAI } from './src/lib/preflight.mjs';
+import { analyzeTextLocally } from './src/lib/preflight.mjs';
 
 test('flags mismatched displayed links and pressure language without opening them', () => {
   const result = analyzeTextLocally('Act now: [microsoft.com](https://login-check.example.invalid/session)');
@@ -23,17 +23,23 @@ test('does not call a plain http URL malicious based on scheme alone', () => {
   assert.ok(result.findings.some((finding) => finding.id === 'unencrypted-link' && finding.severity === 'info'));
 });
 
-test('reports no obvious signs without calling a message safe', () => {
+test('reports no common pattern without calling a message safe', () => {
   const result = analyzeTextLocally('The team meeting is at 10:00 tomorrow.');
   assert.equal(result.riskLevel, 'none');
-  assert.match(result.summary, /no obvious warning signs/i);
+  assert.match(result.summary, /no common warning pattern matched/i);
   assert.match(result.nextStep, /verify it separately/i);
 });
 
-test('removes URL paths and query strings before optional AI analysis', () => {
-  const text = 'Please inspect https://example.org/reset/secret-token?email=private@example.org&code=1234';
-  const result = analyzeTextLocally(text);
-  const redacted = redactLinksForAI(text, result.links);
-  assert.match(redacted, /link to example\.org; path and query removed/i);
-  assert.doesNotMatch(redacted, /secret-token|private@example\.org|code=1234/);
+test('flags misleading user-info and nonstandard port details', () => {
+  const result = analyzeTextLocally('Review https://microsoft.com@account-check.example.org:8443/login');
+  assert.equal(result.riskLevel, 'high');
+  assert.ok(result.findings.some((finding) => finding.id === 'link-credentials'));
+  assert.ok(result.findings.some((finding) => finding.id === 'unusual-port'));
+});
+
+test('flags an unusually long URL as caution without labeling it malicious', () => {
+  const longPath = 'a'.repeat(190);
+  const result = analyzeTextLocally(`Please review https://example.org/${longPath}`);
+  assert.equal(result.riskLevel, 'caution');
+  assert.ok(result.findings.some((finding) => finding.id === 'long-url'));
 });

@@ -17,13 +17,4 @@ export type PreflightLocalResult = {
   links: PreflightLink[];
 };
 
-export type PreflightAIResult = {
-  riskLevel: PreflightRiskLevel;
-  explanation: string;
-  evidence: string[];
-  nextStep: string;
-  steps: string[];
-};
-
 export function analyzeTextLocally(value: string): PreflightLocalResult;
-export function redactLinksForAI(text: string, links: PreflightLink[]): string;

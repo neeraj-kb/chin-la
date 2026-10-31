@@ -97,6 +97,12 @@ export function analyzeTextLocally(value) {
     if (link.parsed.protocol === 'http:') {
       addFinding('unencrypted-link', 'info', 'Link does not use HTTPS', `The connection to ${link.host} may not be encrypted. This alone does not mean the link is malicious.`);
     }
+    if (link.parsed.port && !['80', '443'].includes(link.parsed.port)) {
+      addFinding('unusual-port', 'caution', 'Link uses an unusual web port', `The address for ${link.host} uses port ${link.parsed.port}; verify that this is expected before continuing.`);
+    }
+    if (link.raw.length > 180) {
+      addFinding('long-url', 'caution', 'Link is unusually long', 'Long addresses can hide extra routing or tracking details. Verify the destination through a trusted route.');
+    }
   }
 
   for (const mismatch of findLinkMismatches(text)) {
@@ -130,7 +136,7 @@ export function analyzeTextLocally(value) {
     ? 'Do not open the link, reply, or download the attachment. Verify through the organization’s official website or a contact you already trust.'
     : riskLevel === 'caution'
       ? 'Pause and verify the sender or destination using a contact route you already trust before responding.'
-      : 'These quick checks found no obvious warning signs. If the message was unexpected, verify it separately before sharing information.';
+      : 'No common warning pattern matched. If the message was unexpected, verify it separately before sharing information.';
 
   return {
     riskLevel,
@@ -138,17 +144,9 @@ export function analyzeTextLocally(value) {
       ? 'Several strong warning signs need your attention.'
       : riskLevel === 'caution'
         ? 'Some details deserve a closer look before you respond.'
-        : 'No obvious warning signs were found by these quick checks.',
+        : 'No common warning pattern matched in these on-device checks.',
     nextStep,
     findings,
     links: links.map(({ raw, host }) => ({ raw, host })),
   };
-}
-
-export function redactLinksForAI(text, links) {
-  let redacted = String(text || '').slice(0, 8000);
-  for (const link of links || []) {
-    if (link.raw) redacted = redacted.split(link.raw).join(`[link to ${link.host}; path and query removed]`);
-  }
-  return redacted;
 }

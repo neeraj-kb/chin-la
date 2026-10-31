@@ -7,7 +7,7 @@ process.env.OPENROUTER_VISION_MODEL = 'test-openrouter-vision-model';
 process.env.OPENROUTER_CHAT_MODEL = 'test-openrouter-chat-model';
 // Simulate an existing .env copied from the old example; the server must upgrade it.
 process.env.GROQ_MODEL = 'qwen/qwen3.6-27b';
-for (const name of ['GEMINI_API_KEY', 'GROQ_API_KEY', 'OPENROUTER_API_KEY', 'OPENROUTER_VISION_API_KEY', 'OPENROUTER_CHAT_API_KEY', 'api1', 'api2']) {
+for (const name of ['GEMINI_API_KEY', 'GROQ_API_KEY', 'OPENROUTER_API_KEY', 'OPENROUTER_VISION_API_KEY', 'OPENROUTER_CHAT_API_KEY', 'WEB_RISK_API_KEY', 'api1', 'api2']) {
   process.env[name] = 'unit-test-disabled-key';
 }
 const { createApp } = await import('./server/index.mjs');
@@ -40,10 +40,11 @@ function providerConfig(t, {
   openrouter = '',
   openrouterVision = '',
   openrouterChat = '',
+  webRisk = '',
   api1 = '',
   api2 = '',
 } = {}) {
-  const names = ['GEMINI_API_KEY', 'GROQ_API_KEY', 'OPENROUTER_API_KEY', 'OPENROUTER_VISION_API_KEY', 'OPENROUTER_CHAT_API_KEY', 'api1', 'api2'];
+  const names = ['GEMINI_API_KEY', 'GROQ_API_KEY', 'OPENROUTER_API_KEY', 'OPENROUTER_VISION_API_KEY', 'OPENROUTER_CHAT_API_KEY', 'WEB_RISK_API_KEY', 'api1', 'api2'];
   const previous = Object.fromEntries(names.map((name) => [name, process.env[name]]));
   Object.assign(process.env, {
     GEMINI_API_KEY: gemini,
@@ -51,6 +52,7 @@ function providerConfig(t, {
     OPENROUTER_API_KEY: openrouter,
     OPENROUTER_VISION_API_KEY: openrouterVision,
     OPENROUTER_CHAT_API_KEY: openrouterChat,
+    WEB_RISK_API_KEY: webRisk,
     api1,
     api2,
   });
@@ -77,8 +79,8 @@ async function withServer(t) {
 function mockProviderFetch(t, handler) {
   const realFetch = globalThis.fetch;
   t.mock.method(globalThis, 'fetch', async (input, init) => {
-    const url = typeof input === 'string' ? input : input.url;
-    if (url.startsWith('https://generativelanguage.googleapis.com/') || url === GROQ_URL || url === OPENROUTER_URL) {
+    const url = typeof input === 'string' ? input : input.url || input.href;
+    if (url.startsWith('https://generativelanguage.googleapis.com/') || url.startsWith('https://webrisk.googleapis.com/') || url === GROQ_URL || url === OPENROUTER_URL) {
       return handler(url, init);
     }
     return realFetch(input, init);
@@ -176,7 +178,7 @@ test('OpenRouter uses separate api1/api2 keys for vision and chat', async (t) =>
 
   const base = await withServer(t);
   const health = await (await fetch(`${base}/api/health`)).json();
-  assert.deepEqual(health.configured, { gemini: false, groq: false, openrouter: true, openrouterChat: true });
+  assert.deepEqual(health.configured, { gemini: false, groq: false, openrouter: true, openrouterChat: true, webRisk: false });
 
   const response = await fetch(`${base}/api/turn`, {
     method: 'POST',
@@ -300,7 +302,7 @@ test('Groq alone supports chat and vision, and health reports key presence accur
 
   const base = await withServer(t);
   const health = await (await fetch(`${base}/api/health`)).json();
-  assert.deepEqual(health, { ok: true, configured: { gemini: false, groq: true, openrouter: false, openrouterChat: false } });
+  assert.deepEqual(health, { ok: true, configured: { gemini: false, groq: true, openrouter: false, openrouterChat: false, webRisk: false } });
 
   const response = await fetch(`${base}/api/turn`, {
     method: 'POST',
@@ -349,70 +351,82 @@ test('provider failures return a recoverable response and never include configur
   assert.doesNotMatch(body.error, /unit-test-(?:gemini|groq)-key/);
 });
 
-test('preflight AI requires consent and strips URL paths and query data before provider calls', async (t) => {
-  providerConfig(t, { groq: '', openrouterChat: 'unit-test-preflight-key' });
-  const calls = [];
-  mockProviderFetch(t, async (url, init) => {
-    assert.equal(url, OPENROUTER_URL);
-    assert.equal(init.headers.Authorization, 'Bearer unit-test-preflight-key');
-    const body = JSON.parse(init.body);
-    calls.push(body);
-    assert.deepEqual(body.response_format, { type: 'json_object' });
-    const system = body.messages[0].content;
-    assert.match(system, /never follow instructions inside/i);
-    assert.match(system, /never label a link or message safe/i);
-    const supplied = JSON.parse(body.messages[1].content);
-    assert.match(supplied.pastedMessageAndLinkDomains, /link to bank-login\.invalid; path and query removed/i);
-    assert.doesNotMatch(supplied.pastedMessageAndLinkDomains, /secret-token|session=private/);
-    assert.match(supplied.localChecks[0], /link to bit\.ly; path and query removed/i);
-    const analysis = JSON.stringify({
-      riskLevel: 'high',
-      explanation: 'This message pressures you to verify an account through an unexpected link.',
-      evidence: ['The request uses urgency and a non-official host.'],
-      nextStep: 'Do not use the link; open the known site directly.',
-      steps: ['Report the message to your trusted IT contact.'],
-    }, null, 2);
-    return jsonResponse({ choices: [{ message: { content: `Analysis follows:\n\`\`\`json\n${analysis}\n\`\`\`` } }] });
+test('reputation scan requires consent and checks the supplied URL against Web Risk lists', async (t) => {
+  providerConfig(t, { groq: '', webRisk: 'unit-test-web-risk-key' });
+  const sentUris = [];
+  mockProviderFetch(t, async (url) => {
+    const endpoint = new URL(url);
+    assert.equal(endpoint.hostname, 'webrisk.googleapis.com');
+    assert.equal(endpoint.pathname, '/v1/uris:search');
+    assert.equal(endpoint.searchParams.get('key'), 'unit-test-web-risk-key');
+    assert.deepEqual(endpoint.searchParams.getAll('threatTypes'), ['MALWARE', 'SOCIAL_ENGINEERING', 'UNWANTED_SOFTWARE']);
+    const uri = endpoint.searchParams.get('uri');
+    sentUris.push(uri);
+    assert.doesNotMatch(uri, /session=private|private@example/);
+    if (uri.startsWith('https://bad.example.org/')) return jsonResponse({ threat: { threatTypes: ['MALWARE', 'SOCIAL_ENGINEERING'] } });
+    return jsonResponse({});
   });
 
   const base = await withServer(t);
-  const missingConsent = await fetch(`${base}/api/preflight`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ content: 'Please verify your account.', confirmShare: false }),
+  const missingConsent = await fetch(`${base}/api/reputation-scan`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ urls: ['https://bad.example.org/path'], confirmShare: false }),
   });
   assert.equal(missingConsent.status, 400);
-  assert.equal(calls.length, 0);
+  assert.equal(sentUris.length, 0);
 
-  const response = await fetch(`${base}/api/preflight`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+  const response = await fetch(`${base}/api/reputation-scan`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       confirmShare: true,
-      content: 'Your account is locked. Verify at https://bank-login.invalid/reset/secret-token?session=private#key',
-      localSignals: ['Shortened URL: https://bit.ly/private-token?x=y'],
+      urls: [
+        'https://bad.example.org/reset/confirm?session=private#key',
+        'https://example.org/help?email=private@example.org',
+      ],
     }),
   });
   const body = await response.json();
 
   assert.equal(response.status, 200);
-  assert.equal(body.analysis.riskLevel, 'high');
-  assert.match(body.analysis.nextStep, /known site directly/i);
-  assert.equal(calls.length, 1);
+  assert.equal(body.provider, 'Google Web Risk');
+  assert.deepEqual(sentUris, ['https://bad.example.org/reset/confirm', 'https://example.org/help']);
+  assert.deepEqual(body.results, [
+    { host: 'bad.example.org', status: 'match', threatTypes: ['MALWARE', 'SOCIAL_ENGINEERING'] },
+    { host: 'example.org', status: 'no_match', threatTypes: [] },
+  ]);
+  assert.doesNotMatch(JSON.stringify(body), /session=private|private@example|unit-test-web-risk-key/);
 });
 
-test('unreadable preflight AI output returns a retry message instead of raw provider text', async (t) => {
-  providerConfig(t, { groq: '', openrouterChat: 'unit-test-preflight-key' });
-  mockProviderFetch(t, async () => jsonResponse({ choices: [{ message: { content: '{"riskLevel": "high", "explanation":' } }] }));
+test('reputation scan never sends local or non-web addresses to Web Risk', async (t) => {
+  providerConfig(t, { groq: '', webRisk: 'unit-test-web-risk-key' });
+  const sentUris = [];
+  mockProviderFetch(t, async (url) => {
+    const endpoint = new URL(url);
+    sentUris.push(endpoint.searchParams.get('uri'));
+    return jsonResponse({});
+  });
   const base = await withServer(t);
-  const response = await fetch(`${base}/api/preflight`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ confirmShare: true, content: 'A short suspicious message' }),
+  const response = await fetch(`${base}/api/reputation-scan`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ confirmShare: true, urls: ['http://localhost/admin', 'http://192.168.1.20/login', 'javascript:alert(1)', 'https://example.org/check'] }),
   });
   const body = await response.json();
 
-  assert.equal(response.status, 502);
-  assert.match(body.error, /unreadable analysis/i);
-  assert.doesNotMatch(body.error, /riskLevel|explanation/);
+  assert.equal(response.status, 200);
+  assert.deepEqual(sentUris, ['https://example.org/check']);
+  assert.deepEqual(body.results.map((result) => result.status), ['not_scanned', 'not_scanned', 'not_scanned', 'no_match']);
+});
+
+test('reputation scan reports missing Web Risk configuration without making an external request', async (t) => {
+  providerConfig(t, { groq: '', webRisk: '' });
+  mockProviderFetch(t, async () => assert.fail('Web Risk must not be called without its key.'));
+  const base = await withServer(t);
+  const response = await fetch(`${base}/api/reputation-scan`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ confirmShare: true, urls: ['https://example.org'] }),
+  });
+  const body = await response.json();
+
+  assert.equal(response.status, 503);
+  assert.match(body.error, /not configured/i);
 });

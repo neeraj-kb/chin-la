@@ -20,7 +20,7 @@ Screenwise acts as a screen-aware cybersecurity companion. It explains what it c
 4. OpenRouter routes the screen description and the user’s question to Qwen 3.8 27B for a short explanation, relevant context, and a clear next step. A configured native Groq key can serve as a chat fallback. The assistant also updates the current goal and progress.
 5. The user can ask follow-up questions, pause monitoring, or stop it at any time. When monitoring is paused or stopped, the companion relies on the saved text context rather than a new screen image.
 
-The **Before you click** page supports an early check: paste a suspicious message or link before responding. Local checks look for destination mismatches, shortened or encoded domains, pressure language, requests for credentials or payment, and risky attachment names. Links are never opened. The user may optionally request an AI explanation after explicitly agreeing to share the pasted text; link paths, query strings, and fragments are removed before the request. No live URL reputation feed is connected yet.
+The **Before you click** page runs on-device checks for destination mismatches, shortened or encoded domains, unusual ports, pressure language, requests for credentials or payment, and risky attachment names. After a separate opt-in, it can check up to five URLs against Google Web Risk threat lists for social engineering, malware, and unwanted software. The scan sends the URL host and path to Google; query strings and fragments are removed. The app never opens or crawls the supplied site and does not send the pasted message to the reputation service. A list match is a strong warning; no match is not proof of safety. [Google Web Risk Lookup API](https://docs.cloud.google.com/web-risk/docs/lookup-api)
 
 The assistant is designed to avoid interrupting for routine screen changes, while surfacing a useful next step when one is apparent. It should say when the screen is unclear instead of guessing.
 
@@ -43,7 +43,7 @@ flowchart LR
 
 - **Windows desktop app:** Electron provides the always-on-top companion window, screen/window picker, and Start, Pause, Resume, and Stop controls. A React and Vite interface presents the robot companion, chat, explanations, and session progress.
 - **Screen awareness:** Electron captures a user-selected source. The app compares small in-memory fingerprints locally and sends a frame for analysis only when needed. Screen images are not saved to disk by the app.
-- **Pre-click checks:** Message and URL checks run locally first. An optional, consent-gated AI explanation uses the existing provider proxy; it does not browse or open the supplied links.
+- **Pre-click checks:** Message and URL pattern checks run locally first. A separate, consent-gated Google Web Risk lookup checks URL reputation against current threat lists. It does not use the chat model or open the supplied links.
 - **AI proxy:** A local Express service keeps provider keys out of the renderer. OpenRouter provides the primary image and chat models through one API. Optional direct Gemini and Groq keys provide fallbacks.
 - **Session memory:** A compact text history and progress state are stored in local browser storage. The user can clear them in the app. Images are not included in that saved history.
 
@@ -52,7 +52,7 @@ flowchart LR
 - Monitoring starts only after the user presses **Start** and chooses a screen or window.
 - **Pause** stops sending new frames; **Stop** ends monitoring and releases the selected source.
 - The app and local proxy do not write screen frames to disk or log request bodies. Frames are sent to the configured AI provider for analysis, so review that provider’s data handling terms before using Screenwise with sensitive information.
-- Pasted pre-click content stays in memory for local checks and is not saved by the app. The optional AI second look shares the remaining text and detected domains with the configured provider only after the user opts in; URL paths, query strings, and fragments are stripped first.
+- Pasted pre-click content stays in memory for local checks and is not saved by the app. The live reputation lookup sends only up to five detected URLs to Google after the user opts in; query strings and fragments are stripped, but the host and path are sent. Remove private password-reset or account links before opting in. Google notes that Lookup requests contain the actual URL and may be logged; see its [Web Risk overview](https://docs.cloud.google.com/web-risk/docs/overview?hl=en).
 - API keys stay in the local `.env` file and are used by the Node proxy, not the desktop renderer. `.env` is excluded from Git.
 - The assistant gives guidance for the user to perform. It does not carry out the recommended actions.
 
@@ -61,7 +61,7 @@ flowchart LR
 1. Install Node.js 22.12 or newer.
 2. From this repository folder, run `npm install`.
 3. Run `npm run setup:electron` to install Electron’s Windows runtime.
-4. Copy `.env.example` to `.env` and add an OpenRouter API key. You can use one key for both tasks or separate vision and chat keys. Direct Gemini and Groq keys are optional fallbacks.
+4. Copy `.env.example` to `.env` and add an OpenRouter API key. You can use one key for both tasks or separate vision and chat keys. Direct Gemini and Groq keys are optional fallbacks. Add `WEB_RISK_API_KEY` and enable Google Cloud Web Risk to use live URL reputation checks.
 5. Run `npm run dev`.
 
 This starts the local API proxy, the Vite interface, and the Electron desktop window. The development proxy uses `127.0.0.1:8788` to avoid common local port conflicts; running the proxy on its own still defaults to `127.0.0.1:8787`. The current project runs from source; a Windows installer has not been configured.
@@ -88,6 +88,8 @@ GROQ_MODEL=qwen/qwen3.8-27b
 
 If `.env` contains older lowercase `api1` and `api2` entries, the server uses `api1` for OpenRouter image analysis and `api2` for chat unless standard OpenRouter variables are set.
 
+To enable URL reputation checks, enable the [Google Cloud Web Risk API](https://docs.cloud.google.com/web-risk/docs/detect-malicious-urls), create a restricted API key, and set it as `WEB_RISK_API_KEY` in `.env`. The app checks the Google lists for phishing/social engineering, malware, and unwanted software. The lookup does not crawl the site, and a no-match result cannot prove a URL is safe.
+
 For remote use, deploy the proxy behind authentication and TLS, then set `VITE_COMPANION_API_URL` before building the renderer. Do not expose the local proxy directly to a public network.
 
 ## Checks
@@ -102,4 +104,4 @@ The test suite includes screen-change checks and provider-mocked API flow tests,
 
 ## Current scope
 
-The hackathon MVP focuses on screen awareness, pre-click checks, plain-language explanations, step-by-step guidance, progress tracking, and chat about visible content. It is a companion for small organizations, not a replacement for a dedicated security team. The first version does not include live URL reputation lookups, integrations with security products, or automated remediation.
+The hackathon MVP focuses on screen awareness, local pre-click checks, consent-gated URL reputation lookups, plain-language explanations, step-by-step guidance, progress tracking, and chat about visible content. It is a companion for small organizations, not a replacement for a dedicated security team. It does not execute or crawl websites, guarantee a link is safe, integrate with other security products, or remediate threats automatically.

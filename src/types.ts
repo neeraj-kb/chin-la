@@ -36,12 +36,17 @@ export type CaptureSource = {
   thumbnail: string | null;
 };
 
-export type PreflightAIResult = {
-  riskLevel: 'high' | 'caution' | 'none';
-  explanation: string;
-  evidence: string[];
-  nextStep: string;
-  steps: string[];
+export type WebRiskCheckResult = {
+  host: string;
+  status: 'match' | 'no_match' | 'unavailable' | 'not_scanned';
+  threatTypes: string[];
+  detail?: string;
+};
+
+export type WebRiskScanResponse = {
+  provider: 'Google Web Risk';
+  checkedAt: string;
+  results: WebRiskCheckResult[];
 };
 
 export const emptySessionState: SessionState = {
