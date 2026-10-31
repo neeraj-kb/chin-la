@@ -36,23 +36,6 @@ export type CaptureSource = {
   thumbnail: string | null;
 };
 
-export type CommunityThreatCheck = {
-  source: 'PhishTank';
-  status: 'match' | 'no_match' | 'unverified' | 'unavailable' | 'not_scanned';
-  detail?: string;
-};
-
-export type CommunityUrlCheck = {
-  host: string;
-  sources: CommunityThreatCheck[];
-};
-
-export type ReputationScanResponse = {
-  provider: 'PhishTank community feed';
-  checkedAt: string;
-  results: CommunityUrlCheck[];
-};
-
 export const emptySessionState: SessionState = {
   goal: '',
   screenSummary: '',

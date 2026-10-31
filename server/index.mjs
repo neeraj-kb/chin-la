@@ -1,7 +1,6 @@
 import 'dotenv/config';
 import cors from 'cors';
 import express from 'express';
-import { isIP } from 'node:net';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -41,58 +40,6 @@ const responseShape = {
 
 function safeText(value, limit = 1600) {
   return typeof value === 'string' ? value.slice(0, limit) : '';
-}
-
-function normalizeReputationUrl(value) {
-  if (typeof value !== 'string' || value.length > 2048) return null;
-  const candidate = value.trim();
-  if (!candidate) return null;
-  if (/^(?:javascript|data|file|mailto|ftp):/i.test(candidate)) return null;
-  try {
-    const parsed = new URL(/^https?:\/\//i.test(candidate) ? candidate : `https://${candidate}`);
-    if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password) return null;
-    const hostname = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '');
-    if (!hostname.includes('.') || isIP(hostname)) return null;
-    if (hostname === 'localhost' || /\.(?:localhost|local|internal|test|invalid|example)$/.test(hostname)) return null;
-
-    // Lookup reputation for the host and path, but do not disclose URL query tokens or fragments.
-    parsed.search = '';
-    parsed.hash = '';
-    return { url: parsed.toString(), host: parsed.hostname.toLowerCase() };
-  } catch {
-    return null;
-  }
-}
-
-function combinedTimeout(signal) {
-  const timeoutSignal = AbortSignal.timeout(10_000);
-  return signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
-}
-
-function isYes(value) {
-  return value === true || (typeof value === 'string' && value.toLowerCase() === 'yes');
-}
-
-async function queryPhishTank(url, signal) {
-  const body = new URLSearchParams({ url, format: 'json' });
-  const response = await fetch('https://checkurl.phishtank.com/checkurl/', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'User-Agent': 'Screenwise-Companion/0.1 (community threat-list lookup)',
-    },
-    body,
-    signal: combinedTimeout(signal),
-  });
-  if (!response.ok) {
-    if (response.status === 429 || response.status === 509) throw new Error('PhishTank rate limit reached. Try again later. On-device checks are still available.');
-    throw new Error(`PhishTank returned HTTP ${response.status}.`);
-  }
-  const payload = await response.json().catch(() => null);
-  const result = payload?.results;
-  if (!result || typeof result !== 'object' || Array.isArray(result)) throw new Error('PhishTank returned an unreadable result.');
-  if (!isYes(result.in_database) || !isYes(result.valid)) return 'no_match';
-  return isYes(result.verified) ? 'match' : 'unverified';
 }
 
 function providerError(payload, provider, status) {
@@ -383,47 +330,6 @@ function registerRoutes(app) {
     } catch (error) {
       if (res.headersSent) return;
       const message = error.name === 'AbortError' ? 'Request cancelled.' : error.message || 'The assistant could not respond.';
-      res.status(error.name === 'AbortError' ? 499 : 502).json({ error: message });
-    }
-  });
-
-  app.post('/api/reputation-scan', async (req, res) => {
-    const controller = new AbortController();
-    const abort = () => controller.abort();
-    res.on('close', () => { if (!res.writableEnded) abort(); });
-    try {
-      if (req.body?.confirmShare !== true) {
-        return res.status(400).json({ error: 'Confirm before sending URLs to the PhishTank community feed.' });
-      }
-      const requestedUrls = Array.isArray(req.body?.urls)
-        ? req.body.urls.filter((item) => typeof item === 'string').slice(0, 5)
-        : [];
-      if (!requestedUrls.length) return res.status(400).json({ error: 'Paste at least one web address to check.' });
-      const results = [];
-      const seen = new Set();
-      for (const value of requestedUrls) {
-        const target = normalizeReputationUrl(value);
-        if (!target) {
-          results.push({
-            host: 'Address not shared',
-            sources: [{ source: 'PhishTank', status: 'not_scanned' }],
-          });
-          continue;
-        }
-        if (seen.has(target.url)) continue;
-        seen.add(target.url);
-        const phishTankCheck = queryPhishTank(target.url, controller.signal)
-          .then((status) => ({ source: 'PhishTank', status }))
-          .catch((error) => {
-            if (error.name === 'AbortError') throw error;
-            return { source: 'PhishTank', status: 'unavailable', detail: error.message || 'PhishTank did not return a result.' };
-          });
-        results.push({ host: target.host, sources: [await phishTankCheck] });
-      }
-      res.json({ provider: 'PhishTank community feed', checkedAt: new Date().toISOString(), results });
-    } catch (error) {
-      if (res.headersSent) return;
-      const message = error.name === 'AbortError' ? 'Request cancelled.' : 'The reputation scan could not finish. Your on-device results are still available.';
       res.status(error.name === 'AbortError' ? 499 : 502).json({ error: message });
     }
   });
