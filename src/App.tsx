@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity, ArrowDown, ArrowUp, Check, ChevronDown, CircleHelp, Eye, EyeOff,
   LoaderCircle, LockKeyhole, Minimize2, Monitor, Pause, Play,
-  ShieldAlert, Sparkles, Trash2, X,
+  ShieldAlert, ShieldCheck, Sparkles, Trash2, X,
 } from 'lucide-react';
 import robotMascot from './assets/robot-mascot.svg';
 import robotAvatar from './assets/robot-avatar.svg';
@@ -11,8 +11,10 @@ import { checkBackend, sendTurn } from './lib/api';
 import { changeRatio, frameFingerprint } from './lib/screenChange';
 import { clearSession, loadSession, saveSession } from './lib/session';
 import { emptySessionState, type AssistantReply, type CaptureSource, type ChatMessage, type SessionState } from './types';
+import { PreflightPage } from './components/PreflightPage';
 
 type MonitorStatus = 'off' | 'active' | 'paused';
+type AppPage = 'companion' | 'preflight';
 const POLL_MS = 2600;
 const CHANGE_THRESHOLD = 0.045;
 
@@ -44,6 +46,7 @@ function App() {
   const [messages, setMessages] = useState<ChatMessage[]>(initial.messages);
   const [sessionState, setSessionState] = useState<SessionState>(initial.state);
   const [status, setStatus] = useState<MonitorStatus>('off');
+  const [page, setPage] = useState<AppPage>('companion');
   const [sources, setSources] = useState<CaptureSource[]>([]);
   const [showSourcePicker, setShowSourcePicker] = useState(false);
   const [sourceLoading, setSourceLoading] = useState(false);
@@ -268,12 +271,17 @@ function App() {
         </div>
         <div className="drag-hint" aria-hidden="true"><img src={dragHandle} alt="" /><span>MOVE</span></div>
         <div className="window-actions no-drag">
-          <button className="icon-button" title="Session progress" aria-label="Session progress" onClick={() => setShowSession((value) => !value)}><Activity size={18} /></button>
-          <button className="icon-button" title="Clear conversation" aria-label="Clear conversation" onClick={() => setShowClearConfirm(true)}><Trash2 size={18} /></button>
+          {page === 'companion' && <button className="icon-button" title="Session progress" aria-label="Session progress" onClick={() => setShowSession((value) => !value)}><Activity size={18} /></button>}
+          {page === 'companion' && <button className="icon-button" title="Clear conversation" aria-label="Clear conversation" onClick={() => setShowClearConfirm(true)}><Trash2 size={18} /></button>}
           {window.companionDesktop && <button className="icon-button" title="Minimize" aria-label="Minimize" onClick={() => void window.companionDesktop?.minimize()}><Minimize2 size={18} /></button>}
           {window.companionDesktop && <button className="icon-button close-button" title="Close" aria-label="Close" onClick={() => void window.companionDesktop?.close()}><X size={18} /></button>}
         </div>
       </header>
+
+      <nav className="page-tabs" aria-label="Screenwise pages">
+        <button className={page === 'companion' ? 'page-tab page-tab-active' : 'page-tab'} aria-current={page === 'companion' ? 'page' : undefined} onClick={() => setPage('companion')}><Monitor size={16} />Companion</button>
+        <button className={page === 'preflight' ? 'page-tab page-tab-active' : 'page-tab'} aria-current={page === 'preflight' ? 'page' : undefined} onClick={() => setPage('preflight')}><ShieldCheck size={16} />Before you click</button>
+      </nav>
 
       <section className={`monitor-banner monitor-${statusTone}`}>
         <div className="monitor-state-icon">{status === 'active' ? <Eye size={16} /> : status === 'paused' ? <EyeOff size={16} /> : <Monitor size={16} />}</div>
@@ -286,13 +294,13 @@ function App() {
         </div>
       </section>
 
-      {(serviceStatus !== 'ready' || notice) && <div className={`notice-bar ${serviceStatus === 'offline' || serviceStatus === 'missing' ? 'notice-warning' : ''}`}>
+      {page === 'companion' && (serviceStatus !== 'ready' || notice) && <div className={`notice-bar ${serviceStatus === 'offline' || serviceStatus === 'missing' ? 'notice-warning' : ''}`}>
         {serviceStatus === 'checking' ? <LoaderCircle size={13} className="spin" /> : serviceStatus === 'ready' ? <Check size={13} /> : <CircleHelp size={13} />}
         <span>{notice || (serviceStatus === 'checking' ? 'Connecting to the companion service…' : serviceStatus === 'offline' ? 'Companion service unavailable. Start it with npm run dev.' : 'Add an OPENROUTER_CHAT_API_KEY or GROQ_API_KEY to .env to enable chat, then restart the app.')}</span>
         {notice && <button onClick={() => setNotice('')} aria-label="Dismiss notice"><X size={13} /></button>}
       </div>}
 
-      {showSession && <section className="session-panel">
+      {showSession && page === 'companion' && <section className="session-panel">
         <div className="session-panel-heading"><span><Activity size={14} /> Session memory</span><button onClick={() => setShowSession(false)} aria-label="Close session panel"><X size={14} /></button></div>
         <div className="session-grid">
           <div><span>WHAT YOU'RE WORKING ON</span><p>{sessionState.goal || 'Not set yet'}</p></div>
@@ -303,7 +311,7 @@ function App() {
           <div className="memory-foot"><LockKeyhole size={12} /> Text context is saved on this device. Images aren't saved by this app.</div>
       </section>}
 
-      <main className="conversation" ref={conversationRef} aria-label="Conversation" aria-live="polite" tabIndex={0} onScroll={(event) => {
+      {page === 'preflight' ? <PreflightPage aiAvailable={serviceStatus === 'ready'} /> : <main className="conversation" ref={conversationRef} aria-label="Conversation" aria-live="polite" tabIndex={0} onScroll={(event) => {
         const element = event.currentTarget;
         stickToBottomRef.current = element.scrollHeight - element.scrollTop - element.clientHeight < 80;
       }}>
@@ -331,18 +339,18 @@ function App() {
           </article>)}
           {busy && <div className="thinking-row"><img className="assistant-avatar" src={robotAvatar} alt="" /><div className="thinking"><span className="thinking-dots"><i /><i /><i /></span><span>Making sense of it…</span></div></div>}
         </div>}
-      </main>
+      </main>}
 
-      {messages.length > 0 && !busy && status !== 'off' && <div className="conversation-nudge"><span className="nudge-line" />Ask a follow-up whenever you need<span className="nudge-line" /></div>}
+      {page === 'companion' && messages.length > 0 && !busy && status !== 'off' && <div className="conversation-nudge"><span className="nudge-line" />Ask a follow-up whenever you need<span className="nudge-line" /></div>}
 
-      <footer className="composer-wrap">
+      {page === 'companion' && <footer className="composer-wrap">
         {messages.length === 0 && <div className="composer-hint"><span className="hint-sparkle"><Sparkles size={12} /></span>Ask about a warning, a button, or what to do next</div>}
         <form className="composer" onSubmit={(event) => { event.preventDefault(); submitMessage(); }}>
           <textarea ref={inputRef} value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); submitMessage(); } }} placeholder="Ask about what you see…" rows={1} aria-label="Ask Screenwise a question" />
           <button type="submit" className="send-button" disabled={!draft.trim() || busy} aria-label="Send message">{busy ? <LoaderCircle size={16} className="spin" /> : <ArrowUp size={17} />}</button>
         </form>
         <div className="composer-meta"><span><LockKeyhole size={11} /> Your screen stays under your control</span><span>ENTER TO SEND <kbd>↵</kbd></span></div>
-      </footer>
+      </footer>}
 
       {showSourcePicker && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) { setShowSourcePicker(false); setSources([]); } }}>
         <section className="modal source-modal" role="dialog" aria-modal="true" aria-labelledby="source-title">

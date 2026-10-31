@@ -1,4 +1,4 @@
-import type { AssistantReply, ChatMessage, SessionState } from '../types';
+import type { AssistantReply, ChatMessage, PreflightAIResult, SessionState } from '../types';
 
 const API_BASE = import.meta.env.VITE_COMPANION_API_URL || 'http://127.0.0.1:8787';
 
@@ -36,6 +36,33 @@ export async function sendTurn(input: {
   } catch (error) {
     if (timeoutSignal.aborted && !signal?.aborted) {
       throw new Error('The assistant took too long to respond. Please try again.');
+    }
+    throw error;
+  }
+}
+
+export async function sendPreflightAnalysis(input: {
+  content: string;
+  localSignals: string[];
+}, signal?: AbortSignal): Promise<PreflightAIResult> {
+  const timeoutSignal = AbortSignal.timeout(45_000);
+  const requestSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
+  try {
+    const response = await fetch(`${API_BASE}/api/preflight`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...input, confirmShare: true }),
+      signal: requestSignal,
+    });
+    const body = await response.json().catch((error) => {
+      if (requestSignal.aborted) throw error;
+      return {};
+    });
+    if (!response.ok) throw new Error(body.error || 'The AI second look could not finish. Try again.');
+    return body.analysis as PreflightAIResult;
+  } catch (error) {
+    if (timeoutSignal.aborted && !signal?.aborted) {
+      throw new Error('The AI second look took too long. Your local check is still available.');
     }
     throw error;
   }

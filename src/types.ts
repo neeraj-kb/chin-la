@@ -36,6 +36,14 @@ export type CaptureSource = {
   thumbnail: string | null;
 };
 
+export type PreflightAIResult = {
+  riskLevel: 'high' | 'caution' | 'none';
+  explanation: string;
+  evidence: string[];
+  nextStep: string;
+  steps: string[];
+};
+
 export const emptySessionState: SessionState = {
   goal: '',
   screenSummary: '',

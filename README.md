@@ -20,6 +20,8 @@ Screenwise acts as a screen-aware cybersecurity companion. It explains what it c
 4. OpenRouter routes the screen description and the user’s question to Qwen 3.8 27B for a short explanation, relevant context, and a clear next step. A configured native Groq key can serve as a chat fallback. The assistant also updates the current goal and progress.
 5. The user can ask follow-up questions, pause monitoring, or stop it at any time. When monitoring is paused or stopped, the companion relies on the saved text context rather than a new screen image.
 
+The **Before you click** page supports an early check: paste a suspicious message or link before responding. Local checks look for destination mismatches, shortened or encoded domains, pressure language, requests for credentials or payment, and risky attachment names. Links are never opened. The user may optionally request an AI explanation after explicitly agreeing to share the pasted text; link paths, query strings, and fragments are removed before the request. No live URL reputation feed is connected yet.
+
 The assistant is designed to avoid interrupting for routine screen changes, while surfacing a useful next step when one is apparent. It should say when the screen is unclear instead of guessing.
 
 ## How it works
@@ -41,6 +43,7 @@ flowchart LR
 
 - **Windows desktop app:** Electron provides the always-on-top companion window, screen/window picker, and Start, Pause, Resume, and Stop controls. A React and Vite interface presents the robot companion, chat, explanations, and session progress.
 - **Screen awareness:** Electron captures a user-selected source. The app compares small in-memory fingerprints locally and sends a frame for analysis only when needed. Screen images are not saved to disk by the app.
+- **Pre-click checks:** Message and URL checks run locally first. An optional, consent-gated AI explanation uses the existing provider proxy; it does not browse or open the supplied links.
 - **AI proxy:** A local Express service keeps provider keys out of the renderer. OpenRouter provides the primary image and chat models through one API. Optional direct Gemini and Groq keys provide fallbacks.
 - **Session memory:** A compact text history and progress state are stored in local browser storage. The user can clear them in the app. Images are not included in that saved history.
 
@@ -49,6 +52,7 @@ flowchart LR
 - Monitoring starts only after the user presses **Start** and chooses a screen or window.
 - **Pause** stops sending new frames; **Stop** ends monitoring and releases the selected source.
 - The app and local proxy do not write screen frames to disk or log request bodies. Frames are sent to the configured AI provider for analysis, so review that provider’s data handling terms before using Screenwise with sensitive information.
+- Pasted pre-click content stays in memory for local checks and is not saved by the app. The optional AI second look shares the remaining text and detected domains with the configured provider only after the user opts in; URL paths, query strings, and fragments are stripped first.
 - API keys stay in the local `.env` file and are used by the Node proxy, not the desktop renderer. `.env` is excluded from Git.
 - The assistant gives guidance for the user to perform. It does not carry out the recommended actions.
 
@@ -98,4 +102,4 @@ The test suite includes screen-change checks and provider-mocked API flow tests,
 
 ## Current scope
 
-The hackathon MVP focuses on screen awareness, plain-language explanations, step-by-step guidance, progress tracking, and chat about visible content. It is a companion for small organizations, not a replacement for a dedicated security team. The first version does not include integrations with security products or automated remediation.
+The hackathon MVP focuses on screen awareness, pre-click checks, plain-language explanations, step-by-step guidance, progress tracking, and chat about visible content. It is a companion for small organizations, not a replacement for a dedicated security team. The first version does not include live URL reputation lookups, integrations with security products, or automated remediation.
