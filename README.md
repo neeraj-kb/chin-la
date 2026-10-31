@@ -22,6 +22,8 @@ Screenwise acts as a screen-aware cybersecurity companion. It explains what it c
 
 The **Before you click** page checks message patterns and URL structure on-device, including mismatched destinations and redirect addresses embedded inside links. After a separate opt-in, it checks up to five URLs against the PhishTank community phishing feed. Only the URL host and path are sent; query strings and fragments are removed. The app never opens or crawls the supplied site and does not send the pasted message to the feed. A match is a warning; no match is not proof of safety. PhishTank's simple lookup can be used without an app key, with stricter rate limits. [PhishTank API](https://www.phishtank.org/api_info.php)
 
+The **Practice** page provides three offline attack rehearsals tailored to clinic, school, and retail staff. Users practise responding to a supplier payment-change request, an unexpected sign-in approval, and a fake tech-support warning. Each choice receives an explanation and a safer response. These are simulations: they do not use real email, access accounts, contact anyone, or send data to a service.
+
 The assistant is designed to avoid interrupting for routine screen changes, while surfacing a useful next step when one is apparent. It should say when the screen is unclear instead of guessing.
 
 ## How it works
@@ -44,6 +46,7 @@ flowchart LR
 - **Windows desktop app:** Electron provides the always-on-top companion window, screen/window picker, and Start, Pause, Resume, and Stop controls. A React and Vite interface presents the robot companion, chat, explanations, and session progress.
 - **Screen awareness:** Electron captures a user-selected source. The app compares small in-memory fingerprints locally and sends a frame for analysis only when needed. Screen images are not saved to disk by the app.
 - **Pre-click checks:** Message and URL pattern checks run locally first, including inspection of destinations embedded in common redirect parameters. A separate, consent-gated PhishTank lookup checks known phishing reports. It does not use the chat model or open the supplied links.
+- **Attack rehearsal:** Three role-tailored, offline exercises help staff practise safe responses to common social-engineering attempts. No real email or account is involved.
 - **AI proxy:** A local Express service keeps provider keys out of the renderer. OpenRouter provides the primary image and chat models through one API. Optional direct Gemini and Groq keys provide fallbacks.
 - **Session memory:** A compact text history and progress state are stored in local browser storage. The user can clear them in the app. Images are not included in that saved history.
 
@@ -104,4 +107,4 @@ The test suite includes screen-change checks and provider-mocked API flow tests,
 
 ## Current scope
 
-The hackathon MVP focuses on screen awareness, local pre-click checks, consent-gated URL reputation lookups, plain-language explanations, step-by-step guidance, progress tracking, and chat about visible content. It is a companion for small organizations, not a replacement for a dedicated security team. It does not execute or crawl websites, guarantee a link is safe, integrate with other security products, or remediate threats automatically.
+The hackathon MVP focuses on screen awareness, local pre-click checks, consent-gated URL reputation lookups, offline attack-rehearsal exercises, plain-language explanations, step-by-step guidance, progress tracking, and chat about visible content. It is a companion for small organizations, not a replacement for a dedicated security team. It does not execute or crawl websites, guarantee a link is safe, integrate with other security products, or remediate threats automatically.

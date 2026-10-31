@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Activity, ArrowDown, ArrowUp, Check, ChevronDown, CircleHelp, Eye, EyeOff,
+  Activity, ArrowDown, ArrowUp, Check, ChevronDown, CircleHelp, Eye, EyeOff, GraduationCap,
   LoaderCircle, LockKeyhole, Minimize2, Monitor, Pause, Play,
   ShieldAlert, ShieldCheck, Sparkles, Trash2, X,
 } from 'lucide-react';
@@ -12,9 +12,10 @@ import { changeRatio, frameFingerprint } from './lib/screenChange';
 import { clearSession, loadSession, saveSession } from './lib/session';
 import { emptySessionState, type AssistantReply, type CaptureSource, type ChatMessage, type SessionState } from './types';
 import { PreflightPage } from './components/PreflightPage';
+import { AttackRehearsalPage } from './components/AttackRehearsalPage';
 
 type MonitorStatus = 'off' | 'active' | 'paused';
-type AppPage = 'companion' | 'preflight';
+type AppPage = 'companion' | 'preflight' | 'rehearsal';
 const POLL_MS = 2600;
 const CHANGE_THRESHOLD = 0.045;
 
@@ -281,6 +282,7 @@ function App() {
       <nav className="page-tabs" aria-label="Screenwise pages">
         <button className={page === 'companion' ? 'page-tab page-tab-active' : 'page-tab'} aria-current={page === 'companion' ? 'page' : undefined} onClick={() => setPage('companion')}><Monitor size={16} />Companion</button>
         <button className={page === 'preflight' ? 'page-tab page-tab-active' : 'page-tab'} aria-current={page === 'preflight' ? 'page' : undefined} onClick={() => setPage('preflight')}><ShieldCheck size={16} />Before you click</button>
+        <button className={page === 'rehearsal' ? 'page-tab page-tab-active' : 'page-tab'} aria-current={page === 'rehearsal' ? 'page' : undefined} onClick={() => setPage('rehearsal')}><GraduationCap size={16} />Practice</button>
       </nav>
 
       <section className={`monitor-banner monitor-${statusTone}`}>
@@ -311,7 +313,7 @@ function App() {
           <div className="memory-foot"><LockKeyhole size={12} /> Text context is saved on this device. Images aren't saved by this app.</div>
       </section>}
 
-      {page === 'preflight' ? <PreflightPage /> : <main className="conversation" ref={conversationRef} aria-label="Conversation" aria-live="polite" tabIndex={0} onScroll={(event) => {
+      {page === 'preflight' ? <PreflightPage /> : page === 'rehearsal' ? <AttackRehearsalPage /> : <main className="conversation" ref={conversationRef} aria-label="Conversation" aria-live="polite" tabIndex={0} onScroll={(event) => {
         const element = event.currentTarget;
         stickToBottomRef.current = element.scrollHeight - element.scrollTop - element.clientHeight < 80;
       }}>
