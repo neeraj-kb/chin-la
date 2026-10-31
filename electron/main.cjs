@@ -56,29 +56,37 @@ function createWindow() {
 ipcMain.handle('capture:list-sources', async () => {
   const sources = await desktopCapturer.getSources({
     types: ['screen', 'window'],
-    thumbnailSize: { width: 800, height: 500 },
+    thumbnailSize: { width: 480, height: 300 },
     fetchWindowIcons: false,
   });
-  return sources.map((source) => ({
-    id: source.id,
-    name: source.name,
-    kind: source.id.startsWith('screen:') ? 'Screen' : 'Window',
-    thumbnail: source.thumbnail.isEmpty() ? null : source.thumbnail.toDataURL(),
-  }));
+  return sources.flatMap((source) => {
+    // Some Windows sources (for example minimized or protected windows) are
+    // returned without a usable frame. Don't offer a source that cannot scan.
+    if (source.thumbnail.isEmpty()) return [];
+    return [{
+      id: source.id,
+      name: source.name,
+      kind: source.id.startsWith('screen:') ? 'Screen' : 'Window',
+      thumbnail: source.thumbnail.toDataURL(),
+    }];
+  });
 });
 
 ipcMain.handle('capture:frame', async (_event, sourceId) => {
   if (typeof sourceId !== 'string' || sourceId.length > 300) {
     throw new Error('Choose a valid screen or window first.');
   }
+  const sourceType = sourceId.startsWith('screen:') ? 'screen' : 'window';
   const sources = await desktopCapturer.getSources({
-    types: ['screen', 'window'],
+    // Avoid enumerating/capturing every app window when the user selected a
+    // display. That path can otherwise stall on minimized Windows windows.
+    types: [sourceType],
     thumbnailSize: { width: 1280, height: 800 },
     fetchWindowIcons: false,
   });
   const source = sources.find((candidate) => candidate.id === sourceId);
   if (!source || source.thumbnail.isEmpty()) {
-    throw new Error('That screen or window is no longer available. Select it again.');
+    throw new Error('That source is not producing a screen image. Bring the window to the front or choose the entire screen.');
   }
   return source.thumbnail.toDataURL();
 });

@@ -58,6 +58,7 @@ function App() {
   const sourceRef = useRef<CaptureSource | null>(null);
   const fingerprintRef = useRef<Uint8Array | null>(null);
   const checkingRef = useRef(false);
+  const pollingRef = useRef(false);
   const controllerRef = useRef<AbortController | null>(null);
   const messagesRef = useRef(messages);
   const stateRef = useRef(sessionState);
@@ -155,7 +156,8 @@ function App() {
   useEffect(() => {
     if (status !== 'active' || !selectedSource) return;
     const timer = window.setInterval(async () => {
-      if (checkingRef.current || statusRef.current !== 'active') return;
+      if (pollingRef.current || checkingRef.current || statusRef.current !== 'active') return;
+      pollingRef.current = true;
       try {
         const frame = await captureFrame();
         if (statusRef.current !== 'active') return;
@@ -169,6 +171,8 @@ function App() {
         statusRef.current = 'paused';
         setNotice(error instanceof Error ? error.message : 'Screen capture paused.');
         setStatus('paused');
+      } finally {
+        pollingRef.current = false;
       }
     }, POLL_MS);
     return () => window.clearInterval(timer);
@@ -349,7 +353,7 @@ function App() {
             <div className="source-preview">{source.thumbnail ? <img src={source.thumbnail} alt="" /> : <Monitor size={21} />}</div>
             <div className="source-info"><span>{source.kind}</span><strong>{source.name}</strong></div><ChevronDown size={15} className="source-arrow" />
           </button>)}</div>
-          {sources.length === 0 && <div className="empty-sources">No screens or windows are available. Close this panel and try again.</div>}
+          {sources.length === 0 && <div className="empty-sources">No capturable screens or windows were found. Make sure your screen is awake and the app you want to monitor is visible, then try again.</div>}
           <div className="modal-privacy"><LockKeyhole size={13} /><span>Capture is visible and pausable. Images are not stored.</span></div>
         </section>
       </div>}
