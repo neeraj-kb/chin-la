@@ -344,6 +344,10 @@ button:focus-visible, textarea:focus-visible, .conversation:focus-visible { outl
 .rehearsal-complete ul { display: flex; width: 100%; flex-direction: column; gap: 9px; margin: 0; padding: 12px 0 0; border-top: 1px solid var(--line); list-style: none; }
 .rehearsal-complete li { display: flex; align-items: flex-start; gap: 8px; color: #455670; font-size: 12px; line-height: 1.4; }
 .rehearsal-complete li svg { flex: 0 0 auto; color: var(--teal); }
+.rehearsal-round-topics { display: flex; width: 100%; flex-direction: column; gap: 7px; }
+.rehearsal-round-topics > strong { color: #697890; font-size: 10px; font-weight: 750; letter-spacing: .45px; text-transform: uppercase; }
+.rehearsal-round-topics > div { display: flex; flex-wrap: wrap; gap: 5px; }
+.rehearsal-round-topics span { padding: 5px 7px; border: 1px solid #dce3ed; border-radius: 13px; color: #52617b; background: #f8f9fc; font-size: 10px; }
 .rehearsal-privacy { display: flex; flex: 0 0 auto; align-items: flex-start; gap: 7px; padding: 9px 10px; border: 1px solid #e0e6ee; border-radius: 10px; color: #687790; background: #fff; font-size: 10.5px; line-height: 1.45; }
 .rehearsal-privacy svg { flex: 0 0 auto; margin-top: 1px; color: var(--teal); }
 .welcome { display: flex; min-height: 0; flex: 1 0 auto; flex-direction: column; align-items: center; justify-content: center; padding: 20px 24px 24px; text-align: center; animation: arrive .3s ease both; }

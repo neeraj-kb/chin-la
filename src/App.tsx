@@ -18,6 +18,20 @@ type MonitorStatus = 'off' | 'active' | 'paused';
 type AppPage = 'companion' | 'preflight' | 'rehearsal';
 const POLL_MS = 2600;
 const CHANGE_THRESHOLD = 0.045;
+const PAGE_SESSION_KEY = 'screenwise.activePage';
+
+function readActivePage(): AppPage {
+  try {
+    const saved = sessionStorage.getItem(PAGE_SESSION_KEY);
+    return saved === 'preflight' || saved === 'rehearsal' ? saved : 'companion';
+  } catch {
+    return 'companion';
+  }
+}
+
+function wasPracticePageActive() {
+  try { return sessionStorage.getItem(PAGE_SESSION_KEY) === 'rehearsal'; } catch { return false; }
+}
 
 function newMessage(role: ChatMessage['role'], text: string, reply?: AssistantReply): ChatMessage {
   return { id: crypto.randomUUID(), role, text, createdAt: Date.now(), reply };
@@ -47,7 +61,8 @@ function App() {
   const [messages, setMessages] = useState<ChatMessage[]>(initial.messages);
   const [sessionState, setSessionState] = useState<SessionState>(initial.state);
   const [status, setStatus] = useState<MonitorStatus>('off');
-  const [page, setPage] = useState<AppPage>('companion');
+  const [page, setPage] = useState<AppPage>(readActivePage);
+  const [autoStartPractice, setAutoStartPractice] = useState(wasPracticePageActive);
   const [sources, setSources] = useState<CaptureSource[]>([]);
   const [showSourcePicker, setShowSourcePicker] = useState(false);
   const [sourceLoading, setSourceLoading] = useState(false);
@@ -74,6 +89,10 @@ function App() {
   useEffect(() => { stateRef.current = sessionState; }, [sessionState]);
   useEffect(() => { statusRef.current = status; }, [status]);
   useEffect(() => { sourceRef.current = selectedSource; }, [selectedSource]);
+  useEffect(() => { setAutoStartPractice(false); }, []);
+  useEffect(() => {
+    try { sessionStorage.setItem(PAGE_SESSION_KEY, page); } catch { /* Remembering the page is optional. */ }
+  }, [page]);
   useEffect(() => {
     const conversation = conversationRef.current;
     if (conversation && stickToBottomRef.current) {
@@ -313,7 +332,7 @@ function App() {
           <div className="memory-foot"><LockKeyhole size={12} /> Text context is saved on this device. Images aren't saved by this app.</div>
       </section>}
 
-      {page === 'preflight' ? <PreflightPage /> : page === 'rehearsal' ? <AttackRehearsalPage /> : <main className="conversation" ref={conversationRef} aria-label="Conversation" aria-live="polite" tabIndex={0} onScroll={(event) => {
+      {page === 'preflight' ? <PreflightPage /> : page === 'rehearsal' ? <AttackRehearsalPage autoStart={autoStartPractice} /> : <main className="conversation" ref={conversationRef} aria-label="Conversation" aria-live="polite" tabIndex={0} onScroll={(event) => {
         const element = event.currentTarget;
         stickToBottomRef.current = element.scrollHeight - element.scrollTop - element.clientHeight < 80;
       }}>
