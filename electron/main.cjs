@@ -81,14 +81,25 @@ ipcMain.handle('capture:frame', async (_event, sourceId) => {
     // Avoid enumerating/capturing every app window when the user selected a
     // display. That path can otherwise stall on minimized Windows windows.
     types: [sourceType],
-    thumbnailSize: { width: 1280, height: 800 },
+    // Keep screen text legible for visual analysis. Electron scales the
+    // thumbnail to fit this bound while preserving the source aspect ratio.
+    thumbnailSize: { width: 1920, height: 1200 },
     fetchWindowIcons: false,
   });
   const source = sources.find((candidate) => candidate.id === sourceId);
   if (!source || source.thumbnail.isEmpty()) {
     throw new Error('That source is not producing a screen image. Bring the window to the front or choose the entire screen.');
   }
-  return source.thumbnail.toDataURL();
+  const maxDataUrlLength = 8_500_000;
+  const pngDataUrl = `data:image/png;base64,${source.thumbnail.toPNG().toString('base64')}`;
+  if (pngDataUrl.length <= maxDataUrlLength) return pngDataUrl;
+
+  // Keep high-resolution captures under the local API's request size limit.
+  const jpegDataUrl = `data:image/jpeg;base64,${source.thumbnail.toJPEG(90).toString('base64')}`;
+  if (jpegDataUrl.length > maxDataUrlLength) {
+    throw new Error('This screen image is too large to analyze. Choose a single app window instead.');
+  }
+  return jpegDataUrl;
 });
 
 ipcMain.handle('window:minimize', () => mainWindow?.minimize());

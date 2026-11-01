@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import {
   Activity, ArrowDown, ArrowUp, Check, ChevronDown, CircleHelp, Eye, EyeOff, GraduationCap,
-  LoaderCircle, LockKeyhole, Minimize2, Monitor, Pause, Play,
+  LoaderCircle, LockKeyhole, Minimize2, Monitor, Pause, Play, Plus,
   ShieldAlert, Sparkles, Trash2, X,
 } from 'lucide-react';
 import robotMascot from './assets/robot-mascot.svg';
@@ -18,6 +18,9 @@ type AppPage = 'companion' | 'rehearsal';
 const POLL_MS = 2600;
 const CHANGE_THRESHOLD = 0.045;
 const PAGE_SESSION_KEY = 'screenwise.activePage';
+const MAX_SCREENSHOT_BYTES = 6 * 1024 * 1024;
+
+type PendingScreenshot = { name: string; dataUrl: string };
 
 function readActivePage(): AppPage {
   try {
@@ -40,17 +43,32 @@ function formatTime(value: number) {
   return new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(value);
 }
 
+const securityStatusLabels = {
+  strong_warning: 'Strong warning signs',
+  caution: 'Pause and verify',
+  no_obvious_warning: 'No obvious warning signs',
+  not_security_related: 'Not security-related',
+  unclear: 'Not enough to assess',
+} as const;
+
 function AssistantCard({ reply }: { reply: AssistantReply }) {
+  const securityStatus = securityStatusLabels[reply.securityStatus] ? reply.securityStatus : 'unclear';
   return (
     <div className="assistant-card">
       <div className="reply-heading">
-        <span>Screenwise</span>
-        <span className={`confidence confidence-${reply.confidence}`}>{reply.confidence} confidence</span>
+        <span>Screenwise</span>{' '}
+        <span className={`confidence confidence-${reply.confidence}`} title="Confidence in reading the visible evidence. It is not a verdict that a site, message, or link is safe.">{reply.confidence} reading confidence</span>
       </div>
+      <div className={`security-assessment security-assessment-${securityStatus}`} title="Based on visible screen evidence only; it does not prove a site, message, or device is safe or infected.">
+        <span className="security-assessment-label">SECURITY CHECK</span>
+        <strong>{securityStatusLabels[securityStatus]}</strong>
+      </div>
+      <span className="reply-section-label">IN PLAIN WORDS</span>
       <p className="reply-explanation">{reply.explanation}</p>
+      {reply.confidence !== 'high' && <p className="confidence-note">{reply.confidenceNote || (reply.confidence === 'low' ? 'Important screen details are not clear enough to verify.' : 'Some relevant details are missing, so this is a cautious assessment.')}</p>}
       {reply.background && <div className="background-note"><span>WHY IT MATTERS</span><p>{reply.background}</p></div>}
-      {reply.nextStep && <div className="next-step"><div className="next-step-icon"><ArrowDown size={18} /></div><div><span>SAFEST NEXT STEP</span><p>{reply.nextStep}</p></div></div>}
-      {reply.steps.length > 0 && <ol className="step-list">{reply.steps.map((step, index) => <li key={`${index}-${step}`}><span>{index + 1}</span>{step}</li>)}</ol>}
+      {reply.nextStep && <div className="next-step"><div className="next-step-icon" aria-hidden="true"><ArrowDown size={18} /></div><div><span>SAFEST NEXT STEP</span><p>{reply.nextStep}</p></div></div>}
+      {reply.steps.length > 0 && <ul className="step-list">{reply.steps.map((step, index) => <li key={`${index}-${step}`}><span aria-hidden="true">{index + 1}</span>{step}</li>)}</ul>}
     </div>
   );
 }
@@ -67,6 +85,7 @@ function App() {
   const [sourceLoading, setSourceLoading] = useState(false);
   const [selectedSource, setSelectedSource] = useState<CaptureSource | null>(null);
   const [draft, setDraft] = useState('');
+  const [pendingScreenshot, setPendingScreenshot] = useState<PendingScreenshot | null>(null);
   const [busy, setBusy] = useState(false);
   const [serviceStatus, setServiceStatus] = useState<'checking' | 'ready' | 'missing' | 'offline'>('checking');
   const [notice, setNotice] = useState('');
@@ -83,6 +102,7 @@ function App() {
   const conversationRef = useRef<HTMLElement>(null);
   const stickToBottomRef = useRef(true);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const screenshotInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { messagesRef.current = messages; saveSession({ messages, state: sessionState }); }, [messages, sessionState]);
   useEffect(() => { stateRef.current = sessionState; }, [sessionState]);
@@ -103,13 +123,15 @@ function App() {
     let cancelled = false;
     checkBackend().then((result) => {
       if (cancelled) return;
-      setServiceStatus(result.configured.groq || result.configured.openrouterChat ? 'ready' : 'missing');
+      setServiceStatus(result.configured.groq || result.configured.openrouter || result.configured.gemini ? 'ready' : 'missing');
     }).catch(() => { if (!cancelled) setServiceStatus('offline'); });
     return () => { cancelled = true; };
   }, []);
 
   const pushMessage = useCallback((message: ChatMessage) => {
-    setMessages((current) => [...current, message].slice(-60));
+    const updated = [...messagesRef.current, message].slice(-60);
+    messagesRef.current = updated;
+    setMessages(updated);
   }, []);
 
   const captureFrame = useCallback(async () => {
@@ -117,22 +139,33 @@ function App() {
     return window.companionDesktop.captureFrame(sourceRef.current.id);
   }, []);
 
-  const runAssistantTurn = useCallback(async (options: { message: string; eventOnly?: boolean; forceFrame?: boolean; showUserMessage?: boolean }) => {
-    const { message, eventOnly = false, forceFrame = false, showUserMessage = true } = options;
+  const runAssistantTurn = useCallback(async (options: { message: string; imageData?: string; eventOnly?: boolean; forceFrame?: boolean; showUserMessage?: boolean }) => {
+    const { message, imageData = '', eventOnly = false, forceFrame = false, showUserMessage = true } = options;
     if (checkingRef.current || (eventOnly && statusRef.current !== 'active')) return;
     checkingRef.current = true;
     setBusy(true);
     setNotice('');
-    const history = messagesRef.current.slice(-12).map(({ role, text, id, createdAt }) => ({ role, text, id, createdAt }));
+    const history = messagesRef.current.slice(-12).map((item) => {
+      if (item.role !== 'assistant' || !item.reply) return { role: item.role, text: item.text, id: item.id, createdAt: item.createdAt };
+      const reply = item.reply;
+      const context = [
+        `Screenwise explained: ${reply.explanation}`,
+        reply.background ? `Why it matters: ${reply.background}` : '',
+        reply.securityStatus ? `Security check: ${reply.securityStatus}` : '',
+        reply.nextStep ? `Recommended next step: ${reply.nextStep}` : '',
+        ...(reply.steps || []).map((step) => `Follow-up action: ${step}`),
+      ].filter(Boolean).join('\n');
+      return { role: item.role, text: context.slice(0, 1600), id: item.id, createdAt: item.createdAt };
+    });
     if (showUserMessage && message) {
       stickToBottomRef.current = true;
       pushMessage(newMessage('user', message));
     }
     const controller = new AbortController();
     controllerRef.current = controller;
-    let frameData = '';
+    let frameData = imageData;
     try {
-      if (forceFrame && statusRef.current === 'active' && sourceRef.current) {
+      if (!frameData && forceFrame && statusRef.current === 'active' && sourceRef.current) {
         frameData = await captureFrame();
         fingerprintRef.current = await frameFingerprint(frameData);
       }
@@ -143,10 +176,12 @@ function App() {
         message: contextualMessage,
         ...(frameData ? { frameData } : {}),
         eventOnly,
+        monitoringStatus: statusRef.current,
         state: stateRef.current,
         history,
       }, controller.signal);
       if (controller.signal.aborted) return;
+      if (imageData) setPendingScreenshot(null);
       const updated: SessionState = {
         goal: reply.goal || stateRef.current.goal,
         screenSummary: reply.screenSummary || stateRef.current.screenSummary,
@@ -154,16 +189,20 @@ function App() {
         nextStep: reply.nextStep || stateRef.current.nextStep,
         lastIssue: reply.lastIssue || stateRef.current.lastIssue,
         completedSteps: reply.completedSteps.length ? reply.completedSteps : stateRef.current.completedSteps,
+        securityStatus: reply.securityStatus || stateRef.current.securityStatus,
+        readingConfidence: reply.confidence || stateRef.current.readingConfidence,
       };
+      stateRef.current = updated;
       setSessionState(updated);
       if (!eventOnly || reply.shouldInterrupt) {
         pushMessage(newMessage('assistant', reply.explanation, reply));
-      } else {
-        setNotice('Screen checked · no urgent action needed');
       }
     } catch (error) {
       if (!controller.signal.aborted) {
-        const text = error instanceof Error ? error.message : 'Something went wrong. Please try again.';
+        const providerFailure = error instanceof Error && /(?:OpenRouter|Gemini|Groq).*(?:failed|empty|HTTP|returned)/i.test(error.message);
+        const text = providerFailure
+          ? 'I couldn’t get a reply from the AI service this time. Your earlier screen guidance is still shown above. Please try your question again in a moment.'
+          : error instanceof Error ? error.message : 'Something went wrong. Please try again.';
         if (eventOnly) setNotice(text);
         else pushMessage(newMessage('assistant', text));
       }
@@ -260,14 +299,42 @@ function App() {
 
   const submitMessage = (text = draft) => {
     const trimmed = text.trim();
-    if (!trimmed || busy) return;
+    const screenshot = pendingScreenshot;
+    if ((!trimmed && !screenshot) || busy) return;
+    const message = trimmed || 'Please explain what is visible in this screenshot and mention any cybersecurity concern you can verify.';
     setDraft('');
     void runAssistantTurn({
-      message: trimmed,
-      forceFrame: statusRef.current === 'active',
+      message,
+      ...(screenshot ? { imageData: screenshot.dataUrl } : {}),
+      forceFrame: !screenshot && statusRef.current === 'active',
       showUserMessage: true,
     });
     inputRef.current?.focus();
+  };
+
+  const handleScreenshotSelection = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
+      setNotice('Choose a PNG, JPG, or WebP screenshot.');
+      return;
+    }
+    if (file.size > MAX_SCREENSHOT_BYTES) {
+      setNotice('That image is too large. Choose a screenshot under 6 MB.');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result !== 'string') {
+        setNotice('Could not read that image. Please choose it again.');
+        return;
+      }
+      setPendingScreenshot({ name: file.name, dataUrl: reader.result });
+      setNotice('');
+    };
+    reader.onerror = () => setNotice('Could not read that image. Please choose it again.');
+    reader.readAsDataURL(file);
   };
 
   const handleClear = () => {
@@ -304,7 +371,7 @@ function App() {
 
       <section className={`monitor-banner monitor-${statusTone}`}>
         <div className="monitor-state-icon">{status === 'active' ? <Eye size={16} /> : status === 'paused' ? <EyeOff size={16} /> : <Monitor size={16} />}</div>
-        <div className="monitor-copy"><strong>{statusCopy}</strong><span>{status === 'active' ? 'Screen changes are checked privately' : status === 'paused' ? 'No screen frames are being captured' : 'Choose a window to get started'}</span></div>
+        <div className="monitor-copy"><strong>{statusCopy}</strong><span>{status === 'active' ? 'Checks locally every 2.6 seconds; AI reviews noticeable changes' : status === 'paused' ? 'No screen frames are being captured' : 'Choose a window to get started'}</span></div>
         <div className={`monitor-status status-${statusTone}`}><span />{status === 'active' ? 'LIVE' : status === 'paused' ? 'PAUSED' : 'READY'}</div>
         <div className="monitor-controls">
           {status === 'off' && <button className="small-primary" onClick={handleStart} disabled={sourceLoading}>{sourceLoading ? <LoaderCircle className="spin" size={18} /> : <Play size={17} fill="currentColor" />}{sourceLoading ? 'Loading' : 'Start'}</button>}
@@ -315,7 +382,7 @@ function App() {
 
       {page === 'companion' && (serviceStatus !== 'ready' || notice) && <div className={`notice-bar ${serviceStatus === 'offline' || serviceStatus === 'missing' ? 'notice-warning' : ''}`}>
         {serviceStatus === 'checking' ? <LoaderCircle size={13} className="spin" /> : serviceStatus === 'ready' ? <Check size={13} /> : <CircleHelp size={13} />}
-        <span>{notice || (serviceStatus === 'checking' ? 'Connecting to the companion service…' : serviceStatus === 'offline' ? 'Companion service unavailable. Start it with npm run dev.' : 'Add an OPENROUTER_CHAT_API_KEY or GROQ_API_KEY to .env to enable chat, then restart the app.')}</span>
+        <span>{notice || (serviceStatus === 'checking' ? 'Connecting to the companion service…' : serviceStatus === 'offline' ? 'Companion service unavailable. Start it with npm run dev.' : 'Add an AI provider key to the local .env file, then restart Screenwise.')}</span>
         {notice && <button onClick={() => setNotice('')} aria-label="Dismiss notice"><X size={13} /></button>}
       </div>}
 
@@ -364,9 +431,16 @@ function App() {
 
       {page === 'companion' && <footer className="composer-wrap">
         {messages.length === 0 && <div className="composer-hint"><span className="hint-sparkle"><Sparkles size={12} /></span>Ask about a warning, a button, or what to do next</div>}
+        {pendingScreenshot && <div className="screenshot-preview">
+          <img src={pendingScreenshot.dataUrl} alt="Selected screenshot preview" />
+          <div className="screenshot-preview-copy"><strong>{pendingScreenshot.name}</strong><span>Sent for analysis only when you press send · not saved in chat history</span></div>
+          <button type="button" className="remove-screenshot" disabled={busy} onClick={() => { setPendingScreenshot(null); if (screenshotInputRef.current) screenshotInputRef.current.value = ''; }} aria-label="Remove screenshot"><X size={16} /></button>
+        </div>}
         <form className="composer" onSubmit={(event) => { event.preventDefault(); submitMessage(); }}>
+          <input ref={screenshotInputRef} className="visually-hidden" type="file" accept="image/png,image/jpeg,image/webp" onChange={handleScreenshotSelection} tabIndex={-1} aria-hidden="true" />
+          <button type="button" className="attach-button" title="Add a screenshot from this device" aria-label="Add a screenshot from this device" disabled={busy} onClick={() => screenshotInputRef.current?.click()}><Plus size={21} /></button>
           <textarea ref={inputRef} value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); submitMessage(); } }} placeholder="Ask about what you see…" rows={1} aria-label="Ask Screenwise a question" />
-          <button type="submit" className="send-button" disabled={!draft.trim() || busy} aria-label="Send message">{busy ? <LoaderCircle size={16} className="spin" /> : <ArrowUp size={17} />}</button>
+          <button type="submit" className="send-button" disabled={(!draft.trim() && !pendingScreenshot) || busy} aria-label="Send message">{busy ? <LoaderCircle size={16} className="spin" /> : <ArrowUp size={17} />}</button>
         </form>
         <div className="composer-meta"><span><LockKeyhole size={11} /> Your screen stays under your control</span><span>ENTER TO SEND <kbd>↵</kbd></span></div>
       </footer>}

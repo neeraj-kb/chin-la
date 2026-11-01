@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=1440, initial-scale=1">
+  <title>Screenwise evaluation fixture</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { width: 1440px; height: 900px; margin: 0; overflow: hidden; }
+    body { color: #202124; background: #fff; font: 14px/1.45 "Segoe UI", Arial, sans-serif; }
+    .browser { height: 94px; background: #f0f2f5; border-bottom: 1px solid #d6dae0; }
+    .tabs { height: 36px; display: flex; align-items: end; padding-left: 8px; gap: 6px; background: #e6e9ef; }
+    .tab { width: 252px; height: 31px; display: flex; align-items: center; gap: 9px; padding: 0 12px; border-radius: 9px 9px 0 0; color: #313844; background: #fff; font-size: 12px; }
+    .favicon { width: 15px; height: 15px; display: grid; place-items: center; border-radius: 50%; color: #fff; background: #547aa5; font-size: 9px; font-weight: 700; }
+    .tab-title { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    .tab-plus { padding: 0 10px 2px; color: #626b78; font-size: 20px; }
+    .window-actions { margin-left: auto; display: flex; align-self: stretch; align-items: center; gap: 22px; padding: 0 22px; color: #586170; font-size: 14px; }
+    .toolbar { height: 57px; display: flex; align-items: center; gap: 14px; padding: 0 17px; background: #fff; }
+    .nav-icon { color: #56606e; font-size: 20px; line-height: 1; }
+    .address { height: 34px; max-width: 1090px; flex: 1; display: flex; align-items: center; gap: 10px; padding: 0 15px; border: 1px solid #e2e5e9; border-radius: 18px; color: #424953; background: #f1f3f5; font-size: 13px; }
+    .lock { position: relative; width: 10px; height: 8px; margin-top: 4px; border-radius: 2px; background: #758292; }
+    .lock::before { position: absolute; left: 2px; top: -6px; width: 6px; height: 7px; border: 1.5px solid #758292; border-bottom: 0; border-radius: 5px 5px 0 0; content: ""; }
+    .browser-menu { margin-left: auto; color: #586170; font-size: 20px; }
+    .mail-app { height: 806px; background: #fff; }
+    .mail-top { height: 64px; display: flex; align-items: center; gap: 18px; padding: 0 22px; border-bottom: 1px solid #e8eaed; }
+    .brand { width: 195px; display: flex; align-items: center; gap: 12px; color: #3c4654; font-size: 18px; font-weight: 600; }
+    .brand-mark { width: 30px; height: 24px; display: grid; place-items: center; border: 2px solid #5888b8; border-radius: 5px; color: #4779aa; font-size: 13px; font-weight: 750; }
+    .search { height: 40px; width: 670px; display: flex; align-items: center; gap: 12px; padding: 0 17px; border-radius: 9px; color: #737b86; background: #f0f3f7; font-size: 14px; }
+    .search-icon { font-size: 17px; }
+    .mail-top-actions { margin-left: auto; display: flex; align-items: center; gap: 20px; color: #626b78; font-size: 18px; }
+    .profile { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 50%; color: #fff; background: #7188a8; font-size: 12px; font-weight: 650; }
+    .mail-columns { height: 742px; display: grid; grid-template-columns: 220px 390px 1fr; }
+    .sidebar { padding: 18px 12px 0 18px; border-right: 1px solid #edf0f3; background: #fbfcfd; }
+    .compose { height: 44px; width: 150px; display: flex; align-items: center; gap: 12px; margin-bottom: 19px; padding: 0 17px; border-radius: 22px; color: #37475c; background: #dce9f8; font-weight: 600; }
+    .folder { height: 37px; display: flex; align-items: center; gap: 13px; padding: 0 13px; border-radius: 18px; color: #4b5664; font-size: 13px; }
+    .folder.active { color: #244a70; background: #e5eef8; font-weight: 650; }
+    .folder .count { margin-left: auto; color: #596575; font-size: 12px; }
+    .folder-symbol { width: 14px; color: #6d7784; text-align: center; }
+    .mail-list { overflow: hidden; border-right: 1px solid #edf0f3; background: #fff; }
+    .list-heading { height: 51px; display: flex; align-items: center; justify-content: space-between; padding: 0 18px; border-bottom: 1px solid #edf0f3; color: #303b48; font-size: 15px; font-weight: 650; }
+    .list-heading small { color: #7c8591; font-size: 11px; font-weight: 400; }
+    .mail-row { height: 75px; padding: 12px 15px; border-bottom: 1px solid #eff1f3; color: #3d4753; }
+    .mail-row.selected { border-left: 3px solid #5888b8; padding-left: 12px; background: #eaf2fb; }
+    .row-first { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 3px; font-size: 12px; }
+    .row-first strong { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-weight: 650; }
+    .row-first time { color: #737d89; font-size: 10px; white-space: nowrap; }
+    .row-subject { overflow: hidden; margin-bottom: 2px; color: #414b58; font-size: 11px; white-space: nowrap; text-overflow: ellipsis; }
+    .row-snippet { overflow: hidden; color: #7b8490; font-size: 10px; white-space: nowrap; text-overflow: ellipsis; }
+    .message { position: relative; overflow: hidden; padding: 0 34px 28px; background: #fff; }
+    .message-tools { height: 51px; display: flex; align-items: center; gap: 22px; border-bottom: 1px solid #eef0f2; color: #65707d; font-size: 14px; }
+    .crumb { margin-left: auto; color: #8a929d; font-size: 11px; }
+    .subject { margin: 24px 0 18px; color: #283342; font-size: 24px; font-weight: 500; letter-spacing: -.2px; }
+    .sender { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 21px; }
+    .sender-avatar { width: 36px; height: 36px; flex: 0 0 36px; display: grid; place-items: center; border-radius: 50%; color: #fff; background: #8594a8; font-size: 13px; font-weight: 650; }
+    .sender-details { min-width: 0; flex: 1; color: #3f4854; font-size: 12px; }
+    .sender-primary { display: flex; align-items: baseline; gap: 7px; }
+    .sender-primary strong { color: #2f3742; font-size: 13px; font-weight: 650; }
+    .sender-email { overflow: hidden; max-width: 530px; color: #747d89; white-space: nowrap; text-overflow: ellipsis; }
+    .sender-to { margin-top: 3px; color: #747d89; font-size: 11px; }
+    .message-date { margin-left: auto; color: #78828d; font-size: 11px; white-space: nowrap; }
+    .message-body { max-width: 680px; color: #394451; font-size: 14px; line-height: 1.7; }
+    .message-body p { margin: 0 0 16px; }
+    .message-action { height: 38px; display: inline-flex; align-items: center; padding: 0 16px; border-radius: 4px; color: #fff; background: #4d7eae; font-size: 12px; font-weight: 600; }
+    .message-link { margin-top: 12px; color: #426f9f; font-size: 11px; }
+    .message-signature { margin-top: 20px; color: #555f6d; font-size: 12px; line-height: 1.55; }
+    .dashboard { height: 742px; padding: 36px 54px; background: #f7f8fa; }
+    .dash-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+    .dash-top h1 { margin: 0; color: #273548; font-size: 23px; font-weight: 600; }
+    .dash-top span { color: #717e8f; font-size: 12px; }
+    .dash-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 23px; }
+    .dash-card { min-height: 118px; padding: 20px; border: 1px solid #e4e8ee; border-radius: 8px; background: #fff; }
+    .dash-card span { display: block; margin-bottom: 14px; color: #738094; font-size: 12px; }
+    .dash-card strong { color: #2d3b4f; font-size: 25px; font-weight: 600; }
+    .dash-card em { margin-left: 8px; color: #43816c; font-size: 11px; font-style: normal; }
+    .table-card { padding: 20px 22px; border: 1px solid #e4e8ee; border-radius: 8px; background: #fff; }
+    .table-title { margin: 0 0 15px; color: #344256; font-size: 15px; font-weight: 600; }
+    table { width: 100%; border-collapse: collapse; color: #586577; font-size: 12px; }
+    th { color: #788497; font-size: 11px; font-weight: 550; text-align: left; }
+    th, td { height: 39px; border-bottom: 1px solid #edf0f3; }
+    .status-pill { padding: 4px 9px; border-radius: 12px; color: #47785f; background: #eaf4ee; font-size: 10px; }
+    .security-app { height: 806px; display: grid; grid-template-columns: 250px 1fr; background: #f5f7f9; }
+    .security-nav { padding: 31px 20px; border-right: 1px solid #e1e5e9; background: #fff; }
+    .security-nav h2 { margin: 0 0 26px; color: #293548; font-size: 18px; font-weight: 600; }
+    .security-nav div { height: 42px; padding: 11px 13px; border-radius: 5px; color: #5a6675; font-size: 13px; }
+    .security-nav .chosen { color: #2c5684; background: #e9f1f8; font-weight: 600; }
+    .security-main { padding: 47px 64px; }
+    .security-main h1 { margin: 0 0 8px; color: #283749; font-size: 27px; font-weight: 600; }
+    .security-sub { margin-bottom: 26px; color: #748091; font-size: 13px; }
+    .security-card { display: flex; align-items: center; gap: 18px; margin-bottom: 14px; padding: 22px 25px; border: 1px solid #e0e5ea; border-radius: 7px; background: #fff; }
+    .status-icon { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 50%; color: #327553; background: #e8f4ec; font-size: 18px; }
+    .security-card strong { color: #2f3a49; font-size: 15px; font-weight: 600; }
+    .security-card p { margin: 4px 0 0; color: #728092; font-size: 12px; }
+    .warning-page { height: 806px; padding: 1px 0 0 0; background: #fff; }
+    .warning-panel { width: 650px; margin: 112px auto 0; color: #454b54; }
+    .warning-mark { width: 38px; height: 38px; display: grid; place-items: center; margin-bottom: 25px; border: 2px solid #747c87; border-radius: 50%; color: #626b77; font-size: 22px; }
+    .warning-panel h1 { margin: 0 0 13px; color: #333a44; font-size: 27px; font-weight: 500; }
+    .warning-panel p { max-width: 600px; margin: 0 0 15px; color: #59616d; font-size: 14px; line-height: 1.55; }
+    .warning-code { margin: 22px 0 23px; color: #727b86; font-size: 12px; }
+    .warning-button { display: inline-flex; align-items: center; height: 36px; padding: 0 18px; border-radius: 4px; color: #fff; background: #527fac; font-size: 12px; font-weight: 600; }
+    .update-page { height: 806px; padding: 48px 70px; background: #fbfcfd; }
+    .site-header { height: 58px; display: flex; align-items: center; gap: 32px; border-bottom: 1px solid #e8ebef; color: #465365; font-size: 12px; }
+    .site-brand { color: #33475e; font-size: 17px; font-weight: 650; }
+    .site-content { width: 780px; margin: 46px auto; padding: 28px 35px; border: 1px solid #e6e9ed; border-radius: 7px; background: #fff; }
+    .site-content h1 { margin: 0 0 14px; color: #344153; font-size: 23px; font-weight: 550; }
+    .site-content p { color: #647184; font-size: 13px; }
+    .doc-row { display: flex; align-items: center; gap: 13px; margin-top: 24px; padding: 16px; border: 1px solid #e8ebef; border-radius: 5px; color: #465468; font-size: 12px; }
+    .doc-icon { width: 34px; height: 41px; display: grid; place-items: center; border: 1px solid #dce3ea; border-radius: 4px; color: #557fa9; font-size: 11px; font-weight: 700; }
+    .modal-shade { position: absolute; inset: 94px 0 0; display: grid; place-items: center; background: rgba(48, 57, 68, .23); }
+    .update-modal { width: 440px; padding: 27px 30px 24px; border: 1px solid #dfe4e9; border-radius: 8px; background: #fff; box-shadow: 0 12px 35px rgba(30, 42, 58, .18); }
+    .update-modal h2 { margin: 0 0 9px; color: #303c4b; font-size: 18px; font-weight: 600; }
+    .update-modal p { color: #687586; font-size: 12px; line-height: 1.5; }
+    .update-meta { margin: 15px 0; padding: 11px 12px; border-radius: 5px; color: #5d6877; background: #f5f7f9; font-size: 11px; }
+    .update-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+    .update-actions span { padding: 8px 13px; border: 1px solid #d8dfe6; border-radius: 4px; color: #4c5969; font-size: 11px; }
+    .update-actions .primary { border-color: #517fac; color: #fff; background: #517fac; }
+    .auth-page { height: 806px; display: grid; place-items: center; background: #f6f8fa; }
+    .auth-card { width: 440px; padding: 32px; border: 1px solid #e3e7eb; border-radius: 8px; background: #fff; box-shadow: 0 2px 8px rgba(40, 55, 75, .06); }
+    .auth-brand { margin-bottom: 25px; color: #3e536b; font-size: 15px; font-weight: 650; }
+    .auth-card h1 { margin: 0 0 9px; color: #273548; font-size: 22px; font-weight: 550; }
+    .auth-card p { color: #626f7f; font-size: 13px; line-height: 1.5; }
+    .auth-info { margin: 22px 0; padding: 15px; border-radius: 5px; background: #f4f6f8; }
+    .auth-info strong { color: #364456; font-size: 12px; }
+    .auth-info p { margin: 5px 0 0; font-size: 12px; }
+    .auth-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 24px; }
+    .auth-actions span { padding: 8px 15px; border: 1px solid #d7dde3; border-radius: 4px; color: #4e5a68; font-size: 12px; }
+    .auth-actions .approve { border-color: #456f9d; color: white; background: #456f9d; }
+    .office { height: 806px; background: #fff; }
+    .office-title { height: 42px; display: flex; align-items: center; gap: 14px; padding: 0 22px; border-bottom: 1px solid #e4e6e9; color: #4a5563; font-size: 12px; }
+    .office-title strong { color: #39485b; font-size: 13px; font-weight: 600; }
+    .office-menu { height: 43px; display: flex; align-items: center; gap: 25px; padding: 0 26px; border-bottom: 1px solid #e9ebed; color: #586272; font-size: 12px; }
+    .office-ribbon { height: 74px; display: flex; align-items: center; gap: 18px; padding: 0 26px; border-bottom: 1px solid #e5e7ea; color: #5f6a78; font-size: 11px; }
+    .office-warning { height: 43px; display: flex; align-items: center; gap: 12px; padding: 0 22px; color: #584b1d; background: #fff2c6; font-size: 12px; }
+    .enable-button { margin-left: auto; padding: 6px 12px; border: 1px solid #d8c772; border-radius: 3px; background: #fff8df; font-weight: 600; }
+    .document { width: 750px; min-height: 510px; margin: 27px auto; padding: 48px 67px; border: 1px solid #e5e7ea; box-shadow: 0 2px 8px rgba(30,40,50,.06); color: #333; }
+    .document small { color: #818181; font-size: 10px; letter-spacing: .5px; }
+    .document h1 { margin: 28px 0 16px; color: #394a5c; font: 600 22px Georgia, serif; }
+    .document p { font: 14px/1.7 Georgia, serif; }
+    .cloud-page { height: 806px; display: grid; place-items: center; background: #f6f8fa; }
+    .cloud-card { width: 520px; padding: 30px 34px; border: 1px solid #e1e6eb; border-radius: 8px; background: #fff; box-shadow: 0 2px 9px rgba(37,50,70,.07); }
+    .cloud-logo { margin-bottom: 24px; color: #456d94; font-size: 15px; font-weight: 650; }
+    .cloud-card h1 { margin: 0 0 10px; color: #28384b; font-size: 20px; font-weight: 550; }
+    .cloud-card p { color: #667386; font-size: 12px; line-height: 1.5; }
+    .permission { margin: 20px 0; padding: 14px 15px; border: 1px solid #e7eaee; border-radius: 5px; color: #485668; font-size: 12px; }
+    .permission strong { display: block; margin-bottom: 5px; color: #344359; font-size: 12px; }
+    .cloud-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 25px; }
+    .cloud-actions span { padding: 8px 15px; border: 1px solid #d7dde3; border-radius: 4px; color: #526072; font-size: 12px; }
+    .cloud-actions .allow { color: #fff; background: #507ba7; }
+    .crop-note { padding: 8px 10px; border: 1px solid #e5e8ec; border-radius: 4px; color: #697584; background: #f8f9fa; font-size: 10px; }
+  </style>
+</head>
+<body>
+  <div class="browser">
+    <div class="tabs"><div class="tab"><span class="favicon">H</span><span class="tab-title" id="tabTitle"></span></div><span class="tab-plus">+</span><div class="window-actions"><span>—</span><span>□</span><span>×</span></div></div>
+    <div class="toolbar"><span class="nav-icon">‹</span><span class="nav-icon">›</span><span class="nav-icon">↻</span><div class="address"><span class="lock"></span><span id="addressText"></span></div><span class="browser-menu">⋮</span></div>
+  </div>
+  <main id="app"></main>
+  <script>
+    const rows = [
+      ['Elena Morris', 'Staff rota for next week', 'I have added the updated schedule…', '10:18 AM'],
+      ['Riverside Purchasing', 'Delivery confirmation', 'Your order is scheduled for Friday…', '9:52 AM'],
+      ['Payroll Team', 'Monthly payroll notes', 'Please see the updated calendar…', 'Yesterday'],
+      ['Clinic Updates', 'New staff parking map', 'The visitor entrance is unchanged…', 'Yesterday'],
+      ['Accounts', 'Receipt for office supplies', 'Payment was processed successfully…', 'Tue']
+    ];
+    function inboxRows(selected, subject, sender) {
+      const entries = [[sender, subject, 'Please review the details below…', '10:24 AM'], ...rows];
+      return `<div class="mail-list"><div class="list-heading"><span>Inbox</span><small>1–26 of 126</small></div>${entries.map((row, i) => `<div class="mail-row ${i === 0 ? 'selected' : ''}"><div class="row-first"><strong>${row[0]}</strong><time>${i === 0 ? '10:24 AM' : row[3]}</time></div><div class="row-subject">${row[1]}</div><div class="row-snippet">${row[2]}</div></div>`).join('')}</div>`;
+    }
+    function mailPage(config) {
+      document.title = config.title;
+      document.getElementById('tabTitle').textContent = config.title;
+      document.getElementById('addressText').textContent = config.url;
+      const details = config.hideSender
+        ? `<div class="sender"><div class="sender-avatar">${config.initials || 'R'}</div><div class="sender-details"><div class="sender-primary"><strong>${config.sender}</strong><span class="crop-note">Sender address hidden in this view</span></div><div class="sender-to">to me ▾</div></div><time class="message-date">${config.date || '10:24 AM'}</time></div>`
+        : `<div class="sender"><div class="sender-avatar">${config.initials || 'R'}</div><div class="sender-details"><div class="sender-primary"><strong>${config.sender}</strong><span class="sender-email">&lt;${config.email}&gt;</span></div><div class="sender-to">to me ▾</div></div><time class="message-date">${config.date || '10:24 AM'}</time></div>`;
+      document.getElementById('app').innerHTML = `<div class="mail-app"><header class="mail-top"><div class="brand"><span class="brand-mark">H</span><span>Harbor Mail</span></div><div class="search"><span class="search-icon">⌕</span><span>Search mail</span></div><div class="mail-top-actions"><span>?</span><span>⚙</span><span class="profile">MC</span></div></header><div class="mail-columns"><aside class="sidebar"><div class="compose"><span>＋</span><span>Compose</span></div><div class="folder active"><span class="folder-symbol">▣</span>Inbox<span class="count">26</span></div><div class="folder"><span class="folder-symbol">◷</span>Snoozed</div><div class="folder"><span class="folder-symbol">▱</span>Sent</div><div class="folder"><span class="folder-symbol">▤</span>Drafts<span class="count">2</span></div><div class="folder"><span class="folder-symbol">⌄</span>More</div><div class="folder" style="margin-top:22px"><span class="folder-symbol">▰</span>Labels</div></aside>${inboxRows(false, config.subject, config.sender)}<section class="message"><div class="message-tools"><span>←</span><span>▣</span><span>⌑</span><span>◷</span><span>▱</span><span class="crumb">${config.index || '8'} of 26　 ‹　 ›</span></div><h1 class="subject">${config.subject}</h1>${details}<div class="message-body">${config.body}</div>${config.action ? `<div class="message-action">${config.action}</div>` : ''}${config.link ? `<div class="message-link">${config.link}</div>` : ''}${config.signature ? `<div class="message-signature">${config.signature}</div>` : ''}</section></div></div>`;
+    }
+    function dashboard() {
+      document.title = 'Orders · Northstar Market'; document.getElementById('tabTitle').textContent = document.title; document.getElementById('addressText').textContent = 'portal.northstarmarket.test/orders';
+      document.getElementById('app').innerHTML = `<div class="mail-app"><header class="mail-top"><div class="brand"><span class="brand-mark">N</span><span>Northstar Market</span></div><div class="search"><span class="search-icon">⌕</span><span>Search orders, customers, and products</span></div><div class="mail-top-actions"><span>?</span><span>⚙</span><span class="profile">DM</span></div></header><section class="dashboard"><div class="dash-top"><h1>Orders overview</h1><span>Updated just now　　Last 30 days　⌄</span></div><div class="dash-cards"><div class="dash-card"><span>Orders today</span><strong>18</strong><em>↑ 6% this week</em></div><div class="dash-card"><span>Payment status</span><strong>Settled</strong></div><div class="dash-card"><span>Open orders</span><strong>7</strong><em>2 ship today</em></div></div><div class="table-card"><h2 class="table-title">Recent orders</h2><table><thead><tr><th>ORDER</th><th>CUSTOMER</th><th>DATE</th><th>STATUS</th><th>TOTAL</th></tr></thead><tbody><tr><td>#NS-1048</td><td>Priya Nair</td><td>Today, 10:42 AM</td><td><span class="status-pill">Complete</span></td><td>₹ 2,450</td></tr><tr><td>#NS-1047</td><td>Meera Shah</td><td>Today, 10:31 AM</td><td><span class="status-pill">Processing</span></td><td>₹ 1,875</td></tr><tr><td>#NS-1046</td><td>Rohan Das</td><td>Today, 10:18 AM</td><td><span class="status-pill">Complete</span></td><td>₹ 3,210</td></tr><tr><td>#NS-1045</td><td>Asha Rao</td><td>Today, 9:56 AM</td><td><span class="status-pill">Complete</span></td><td>₹ 980</td></tr><tr><td>#NS-1044</td><td>Kabir Sen</td><td>Today, 9:41 AM</td><td><span class="status-pill">Processing</span></td><td>₹ 1,299</td></tr></tbody></table></div></section></div>`;
+    }
+    function securityStatus() {
+      document.title = 'Windows Security'; document.getElementById('tabTitle').textContent = document.title; document.getElementById('addressText').textContent = 'Windows Security';
+      document.getElementById('app').innerHTML = `<div class="security-app"><aside class="security-nav"><h2>Windows Security</h2><div class="chosen">⌂　Security at a glance</div><div>▣　Virus & threat protection</div><div>▧　Account protection</div><div>▤　Firewall & network</div><div>▣　App & browser control</div><div>⚙　Device security</div></aside><section class="security-main"><h1>Security at a glance</h1><div class="security-sub">Check the security and health of your device.</div><div class="security-card"><span class="status-icon">✓</span><div><strong>Virus & threat protection</strong><p>No current threats. Last scan: today at 9:10 AM.</p></div></div><div class="security-card"><span class="status-icon">✓</span><div><strong>Account protection</strong><p>Your sign-in options are set up.</p></div></div><div class="security-card"><span class="status-icon">✓</span><div><strong>Firewall & network protection</strong><p>The firewall is on for your active network.</p></div></div><div class="security-card"><span class="status-icon">✓</span><div><strong>App & browser control</strong><p>Reputation-based protection is on.</p></div></div></section></div>`;
+    }
+    function certificateWarning() {
+      document.title = 'Privacy error'; document.getElementById('tabTitle').textContent = 'Privacy error'; document.getElementById('addressText').textContent = 'staff.riversideclinic.test';
+      document.getElementById('app').innerHTML = `<section class="warning-page"><div class="warning-panel"><div class="warning-mark">!</div><h1>Your connection is not private</h1><p>Someone might be trying to read information you send to <strong>staff.riversideclinic.test</strong>. It is best to go back to safety.</p><p>This site cannot prove that it is staff.riversideclinic.test. The certificate is no longer valid.</p><div class="warning-code">NET::ERR_CERT_DATE_INVALID</div><div class="warning-button">Back to safety</div><p style="margin-top:22px;color:#69727e">Advanced</p></div></section>`;
+    }
+    function fakeUpdate() {
+      document.title = 'Shared documents'; document.getElementById('tabTitle').textContent = document.title; document.getElementById('addressText').textContent = 'documents.harbor-office.test/shared/weekly-report';
+      document.getElementById('app').innerHTML = `<section class="update-page"><header class="site-header"><span class="site-brand">Harbor Office</span><span>Documents</span><span>Shared with me</span><span>Help</span></header><div class="site-content"><h1>Weekly purchasing report</h1><p>Shared by Elena Morris　·　Updated today at 9:42 AM</p><div class="doc-row"><span class="doc-icon">XLS</span><span><strong>Purchasing_week_24.xlsx</strong><br><span style="color:#7b8692">Spreadsheet · 184 KB</span></span></div><p style="margin-top:26px">This report summarizes deliveries and outstanding orders for the week.</p><div class="doc-row"><span style="color:#5b6f84">Preview is ready to open</span></div></div><div class="modal-shade"><div class="update-modal"><h2>Additional viewer component</h2><p>This document needs a small viewer update before it can be opened in this browser.</p><div class="update-meta">File: <strong>DocumentViewer_Update.exe</strong><br>Publisher: Not listed　·　From this website</div><p>If you weren't expecting this download, close this message and open the document in your usual office app.</p><div class="update-actions"><span>Cancel</span><span class="primary">Download update</span></div></div></div></section>`;
+    }
+    function signInPrompt() {
+      document.title = 'Sign in · Harbor Staff'; document.getElementById('tabTitle').textContent = document.title; document.getElementById('addressText').textContent = 'account.harborstaff.test/signin/approve';
+      document.getElementById('app').innerHTML = `<section class="auth-page"><div class="auth-card"><div class="auth-brand">Harbor Staff Account</div><h1>Approve sign-in?</h1><p>A sign-in request is waiting for your approval.</p><div class="auth-info"><strong>Sign-in details</strong><p>Browser: Windows device</p><p>Location: Pune, India</p><p>Time: Today at 10:24 AM</p></div><p>Only approve this request if you just tried to sign in.</p><div class="auth-actions"><span>Deny</span><span class="approve">Approve</span></div></div></section>`;
+    }
+    function macroWarning() {
+      document.title = 'Invoice_May.docm · Documents'; document.getElementById('tabTitle').textContent = 'Invoice_May.docm'; document.getElementById('addressText').textContent = 'mail.riversideclinic.test/attachment/Invoice_May.docm';
+      document.getElementById('app').innerHTML = `<section class="office"><header class="office-title"><span style="color:#577da4;font-size:18px">▤</span><strong>Invoice_May.docm</strong><span>Saved to Downloads</span><span style="margin-left:auto">Share　⋯</span></header><nav class="office-menu"><span>File</span><span>Home</span><span>Insert</span><span>Layout</span><span>Review</span><span>View</span></nav><div class="office-ribbon"><span>Paste</span><span>Font　Arial　11</span><span>Paragraph</span><span>Styles</span><span>Find</span></div><div class="office-warning"><strong>SECURITY WARNING</strong><span>Macros have been disabled because the source of this file is not trusted.</span><span class="enable-button">Enable Content</span></div><article class="document"><small>RIVERSIDE CLINIC　　ACCOUNTS PAYABLE</small><h1>Invoice 24-1187</h1><p>Bill to: Riverside Clinic</p><p>Service period: May 1–31</p><p>Description　　　　　　　　　　　　　　　　Amount</p><p>Facilities maintenance　　　　　　　　　　　₹ 18,400</p><p>Payment due: June 15</p><hr style="border:0;border-top:1px solid #ddd;margin:28px 0"><p>Please contact Accounts Payable if you have questions about this invoice.</p></article></section>`;
+    }
+    function cloudPermission() {
+      document.title = 'Connect account'; document.getElementById('tabTitle').textContent = document.title; document.getElementById('addressText').textContent = 'share.harbor-office.test/connect';
+      document.getElementById('app').innerHTML = `<section class="cloud-page"><div class="cloud-card"><div class="cloud-logo">Harbor Office　›　FileBoard</div><h1>Allow FileBoard to access your account?</h1><p>FileBoard is requesting permission to connect to your Harbor Office account.</p><div class="permission"><strong>View and manage all files in your account</strong>This includes files you own and files shared with you.</div><div class="permission"><strong>View your profile information</strong>Name, email address, and profile image.</div><p>Only continue if you recognize FileBoard and expected this access.</p><div class="cloud-actions"><span>Cancel</span><span class="allow">Allow access</span></div></div></section>`;
+    }
+    const id = new URLSearchParams(location.search).get('case');
+    const cases = {
+      'ordinary-retail-dashboard': dashboard,
+      'mailbox-lookalike-request': () => mailPage({ title: 'Inbox · Harbor Mail', url: 'mail.riversideclinic.test/inbox/1458', subject: 'Payroll details to confirm', sender: 'Riverside Payroll', email: 'payroll@riversideclinc.test', initials: 'RP', body: '<p>Hi Maya,</p><p>We are closing this month’s payroll shortly. Please review the direct deposit details on file using the employee portal below. If you have already updated your information, no action is needed.</p><p>Thank you,<br>Payroll Team</p>', action: 'Review payroll details', link: 'https://riversideclinc.test/employee/payroll', signature: 'Riverside Clinic · People Operations' }),
+      'browser-certificate-warning': certificateWarning,
+      'windows-security-up-to-date': securityStatus,
+      'cropped-account-message': () => mailPage({ title: 'Inbox · Harbor Mail', url: 'mail.riversideclinic.test/inbox/1461', subject: 'Account access review', sender: 'Riverside Account Team', initials: 'RA', hideSender: true, body: '<p>Hello,</p><p>Your account access needs to be reviewed before the end of the day. Please use the account page if you recognize this request.</p><p>Regards,<br>Account Team</p>', action: 'Review account' }),
+      'payment-change-request': () => mailPage({ title: 'Inbox · Harbor Mail', url: 'mail.harbor-office.test/inbox/1464', subject: 'Updated remittance details for June', sender: 'Meridian Supply Accounts', email: 'accounts@meridian-supplies.test', initials: 'MS', body: '<p>Hello,</p><p>We have updated our banking details for invoices issued from June 1. Please use the revised account information on the attached remittance sheet for the outstanding balance.</p><p>Could you confirm once the payment has been arranged? Our previous account will be closed at the end of this week.</p><p>Thank you,<br>Accounts Team<br>Meridian Supply</p>', action: 'View remittance details', signature: 'This message was sent to Harbor Office Accounts Payable.' }),
+      'unexpected-signin-prompt': signInPrompt,
+      'fake-software-update': fakeUpdate,
+      'macro-attachment-warning': macroWarning,
+      'cloud-share-permission': cloudPermission,
+      'legitimate-payroll-notice': () => mailPage({ title: 'Inbox · Harbor Mail', url: 'mail.riversideclinic.test/inbox/1451', subject: 'Payroll calendar for June', sender: 'Riverside Payroll', email: 'payroll@riversideclinic.test', initials: 'RP', body: '<p>Hi everyone,</p><p>The June payroll calendar is now available in the staff portal. Payday is Friday, June 28. Please send any timesheet corrections to the People Operations team by Wednesday afternoon.</p><p>No changes are needed if your hours are already correct.</p><p>Thank you,<br>Payroll Team</p>', signature: 'Riverside Clinic · People Operations' })
+    };
+    (cases[id] || dashboard)();
+  </script>
+</body>
+</html>

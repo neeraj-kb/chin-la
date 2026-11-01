@@ -31,6 +31,8 @@ const replyFixture = {
   lastIssue: 'Unexpected sign-in alert',
   completedSteps: [],
   confidence: 'medium',
+  confidenceNote: 'The page is readable, but the sender details are not visible.',
+  securityStatus: 'caution',
   shouldInterrupt: true,
 };
 
@@ -96,33 +98,31 @@ function groqReplyResponse(reply = replyFixture) {
   return jsonResponse({ choices: [{ message: { content: JSON.stringify(reply) } }] });
 }
 
-test('screen analysis → Groq guidance keeps the visible context and session progress', async (t) => {
+test('Gemini reads a screenshot and returns guidance in one provider call', async (t) => {
   providerConfig(t, { gemini: 'unit-test-gemini-key' });
   const calls = [];
   mockProviderFetch(t, async (url, init) => {
     const body = JSON.parse(init.body);
     calls.push({ url, init, body });
-    if (url === GEMINI_URL) {
-      assert.equal(init.headers['x-goog-api-key'], 'unit-test-gemini-key');
-      assert.equal(body.contents[0].parts[1].inlineData.data, 'aGVsbG8=');
-      assert.deepEqual(body.generationConfig, { maxOutputTokens: 600 });
-      return jsonResponse({ candidates: [{ content: { parts: [{ text: 'A sign-in alert is open on the account page.' }] } }] });
-    }
-
-    assert.equal(init.headers.Authorization, 'Bearer unit-test-groq-key');
-    assert.equal(body.model, GROQ_MODEL);
-    assert.deepEqual(body.response_format, { type: 'json_object' });
-    assert.equal(body.reasoning_format, 'hidden');
-    assert.equal(body.max_completion_tokens, 900);
-    const systemMessage = body.messages.find((message) => message.role === 'system');
-    assert.match(systemMessage.content, /untrusted data/i);
-    const context = JSON.parse(body.messages.at(-1).content);
-    assert.equal(context.currentScreenDescription, 'A sign-in alert is open on the account page.');
-    assert.equal(context.userMessage, 'Where do I review the sign-in?');
-    assert.equal(context.sessionState.goal, 'Investigate a sign-in alert');
-    assert.equal(context.sessionState.currentStep, 'Open account activity');
-    assert.equal(body.messages[1].content, 'I opened the account security page.');
-    return groqReplyResponse();
+    assert.equal(url, GEMINI_URL);
+    assert.equal(init.headers['x-goog-api-key'], 'unit-test-gemini-key');
+    assert.equal(body.contents[0].parts[1].inlineData.data, 'aGVsbG8=');
+    assert.deepEqual(body.generationConfig, { maxOutputTokens: 900, mediaResolution: 'MEDIA_RESOLUTION_HIGH', responseMimeType: 'application/json' });
+    const systemPrompt = body.systemInstruction.parts[0].text;
+    assert.match(systemPrompt, /full sender address/);
+    assert.match(systemPrompt, /do not stop after identifying the app/i);
+    assert.match(systemPrompt, /Confidence means certainty in the specific observations and advice/i);
+    assert.match(systemPrompt, /Set securityStatus separately from reading confidence/i);
+    assert.match(systemPrompt, /This is not a claim that the content is safe/i);
+    assert.match(systemPrompt, /Never mention an internal image description or analysis step/i);
+    assert.match(systemPrompt, /Each steps item must be a plain action sentence without a number or bullet/i);
+    const context = JSON.parse(body.contents[0].parts[0].text);
+    assert.match(context.recentConversation, /I opened the account security page/);
+    assert.equal(context.currentTurn.currentScreenDescription, 'Read the attached screenshot directly; do not rely on a prior visual description.');
+    assert.equal(context.currentTurn.userMessage, 'Where do I review the sign-in?');
+    assert.equal(context.currentTurn.sessionState.goal, 'Investigate a sign-in alert');
+    assert.equal(context.currentTurn.sessionState.currentStep, 'Open account activity');
+    return jsonResponse({ candidates: [{ content: { parts: [{ text: JSON.stringify(replyFixture) }] } }] });
   });
 
   const base = await withServer(t);
@@ -141,10 +141,12 @@ test('screen analysis → Groq guidance keeps the visible context and session pr
 
   assert.equal(response.status, 200);
   assert.equal(response.headers.get('access-control-allow-origin'), 'http://127.0.0.1:5187');
-  assert.deepEqual(calls.map((call) => call.url), [GEMINI_URL, GROQ_URL]);
+  assert.deepEqual(calls.map((call) => call.url), [GEMINI_URL]);
   assert.equal(body.reply.explanation, replyFixture.explanation);
   assert.equal(body.reply.nextStep, replyFixture.nextStep);
   assert.equal(body.reply.confidence, 'medium');
+  assert.equal(body.reply.confidenceNote, replyFixture.confidenceNote);
+  assert.equal(body.reply.securityStatus, 'caution');
   assert.equal(body.reply.screenSummary, replyFixture.screenSummary);
 });
 
@@ -158,25 +160,43 @@ test('OpenRouter uses separate api1/api2 keys for vision and chat', async (t) =>
     if (calls.length === 1) {
       assert.equal(init.headers.Authorization, 'Bearer unit-test-openrouter-vision-key');
       assert.equal(body.model, OPENROUTER_VISION_MODEL);
-      assert.equal(body.max_completion_tokens, 600);
-      assert.equal(body.messages[0].content[1].image_url.url, IMAGE);
-      assert.match(body.messages[0].content[0].text, /untrusted user content/i);
-      return jsonResponse({ choices: [{ message: { content: 'A sign-in alert is open on the account page.' } }] });
+      assert.equal(body.max_completion_tokens, 900);
+      assert.equal(body.reasoning_effort, 'low');
+      assert.deepEqual(body.response_format, { type: 'json_object' });
+      const prompt = body.messages[0].content;
+      assert.match(prompt, /untrusted content/i);
+      assert.match(prompt, /do not stop after identifying the app/i);
+      assert.match(prompt, /For an email, read the open message's subject/i);
+      const currentTurn = body.messages.at(-1).content;
+      assert.equal(currentTurn[0].type, 'text');
+      assert.equal(JSON.parse(currentTurn[0].text).userMessage, 'Where should I review this?');
+      assert.equal(currentTurn[1].image_url.url, IMAGE);
+      return jsonResponse({ choices: [{ message: { content: JSON.stringify(replyFixture) } }] });
     }
 
     assert.equal(init.headers.Authorization, 'Bearer unit-test-openrouter-chat-key');
     assert.equal(body.model, OPENROUTER_CHAT_MODEL);
     assert.equal(body.max_completion_tokens, 900);
+    assert.equal(body.reasoning_effort, 'low');
     assert.deepEqual(body.response_format, { type: 'json_object' });
     const context = JSON.parse(body.messages.at(-1).content);
-    assert.equal(context.currentScreenDescription, 'A sign-in alert is open on the account page.');
-    assert.equal(context.userMessage, 'Where should I review this?');
+    assert.match(context.currentScreenDescription, /fake Flash Player update/i);
+    assert.equal(context.userMessage, 'How do I close the tab?');
+    assert.equal(context.sessionState.securityStatus, 'strong_warning');
+    assert.equal(context.monitoringStatus, 'off');
+    const priorAssistant = body.messages.find((message) => message.role === 'assistant');
+    assert.match(priorAssistant.content, /Recommended next step: Close the browser tab/);
+    const system = body.messages.find((message) => message.role === 'system').content;
+    assert.match(system, /answer that exact question first/i);
+    assert.match(system, /Do not repeat the alert explanation/i);
+    assert.match(system, /live, frame-based monitoring/i);
+    assert.match(system, /does not create or save a continuous video recording/i);
     return groqReplyResponse();
   });
 
   const base = await withServer(t);
   const health = await (await fetch(`${base}/api/health`)).json();
-  assert.deepEqual(health.configured, { gemini: false, groq: false, openrouter: true, openrouterChat: true });
+  assert.deepEqual(health.configured, { gemini: false, groq: false, openrouter: true, openrouterVision: true, openrouterChat: true });
 
   const response = await fetch(`${base}/api/turn`, {
     method: 'POST',
@@ -184,13 +204,30 @@ test('OpenRouter uses separate api1/api2 keys for vision and chat', async (t) =>
     body: JSON.stringify({ message: 'Where should I review this?', frameData: IMAGE, state: {}, history: [] }),
   });
   const body = await response.json();
-
   assert.equal(response.status, 200);
-  assert.equal(calls.length, 2);
   assert.equal(body.reply.explanation, replyFixture.explanation);
+
+  const chatResponse = await fetch(`${base}/api/turn`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      message: 'How do I close the tab?',
+      state: {
+        screenSummary: 'A fake Flash Player update page asks to download software.',
+        securityStatus: 'strong_warning',
+        readingConfidence: 'high',
+      },
+      history: [
+        { role: 'assistant', text: 'Screenwise explained: This page is using a fake Flash Player update to get you to download software.\nRecommended next step: Close the browser tab without clicking anything on the page.' },
+      ],
+    }),
+  });
+  assert.equal(chatResponse.status, 200);
+  assert.equal((await chatResponse.json()).reply.explanation, replyFixture.explanation);
+  assert.equal(calls.length, 2);
 });
 
-test('one shared OpenRouter key supports vision and chat', async (t) => {
+test('one shared OpenRouter key supports one-call screenshot replies and chat', async (t) => {
   providerConfig(t, { groq: '', openrouter: 'unit-test-openrouter-shared-key' });
   let calls = 0;
   mockProviderFetch(t, async (url, init) => {
@@ -200,8 +237,8 @@ test('one shared OpenRouter key supports vision and chat', async (t) => {
     calls += 1;
     if (calls === 1) {
       assert.equal(body.model, OPENROUTER_VISION_MODEL);
-      assert.equal(body.messages[0].content[1].image_url.url, IMAGE);
-      return jsonResponse({ choices: [{ message: { content: 'A blank one-pixel test image.' } }] });
+      assert.equal(body.messages.at(-1).content[1].image_url.url, IMAGE);
+      return jsonResponse({ choices: [{ message: { content: JSON.stringify(replyFixture) } }] });
     }
     assert.equal(body.model, OPENROUTER_CHAT_MODEL);
     return groqReplyResponse();
@@ -214,26 +251,29 @@ test('one shared OpenRouter key supports vision and chat', async (t) => {
     body: JSON.stringify({ message: 'What does this image show?', frameData: IMAGE, state: {}, history: [] }),
   });
   assert.equal(response.status, 200);
-  assert.equal(calls, 2);
   assert.equal((await response.json()).reply.explanation, replyFixture.explanation);
+
+  const chatResponse = await fetch(`${base}/api/turn`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message: 'Explain simply.', state: {}, history: [] }),
+  });
+  assert.equal(chatResponse.status, 200);
+  assert.equal(calls, 2);
 });
 
-test('Gemini failure falls back to Groq vision, then returns plain-language guidance', async (t) => {
+test('Gemini failure falls back to one-call Groq visual guidance', async (t) => {
   providerConfig(t, { gemini: 'unit-test-gemini-key' });
   const calls = [];
   mockProviderFetch(t, async (url, init) => {
     const body = JSON.parse(init.body);
     calls.push({ url, body });
     if (url === GEMINI_URL) return jsonResponse({ error: { message: 'Gemini billing unavailable' } }, 403);
-    if (calls.length === 2) {
-      assert.equal(body.model, GROQ_MODEL);
-      assert.equal(body.messages[0].content[1].image_url.url, IMAGE);
-      assert.equal(body.max_completion_tokens, 500);
-      assert.equal(body.reasoning_format, 'hidden');
-      return jsonResponse({ choices: [{ message: { content: 'A browser warning says the connection is not private.' } }] });
-    }
-    const context = JSON.parse(body.messages.at(-1).content);
-    assert.equal(context.currentScreenDescription, 'A browser warning says the connection is not private.');
+    assert.equal(body.model, GROQ_MODEL);
+    assert.equal(body.messages.at(-1).content[1].image_url.url, IMAGE);
+    assert.equal(body.max_completion_tokens, 900);
+    assert.deepEqual(body.response_format, { type: 'json_object' });
+    assert.equal(body.reasoning_format, 'hidden');
     return groqReplyResponse();
   });
 
@@ -246,8 +286,88 @@ test('Gemini failure falls back to Groq vision, then returns plain-language guid
   const body = await response.json();
 
   assert.equal(response.status, 200);
-  assert.deepEqual(calls.map((call) => call.url), [GEMINI_URL, GROQ_URL, GROQ_URL]);
+  assert.deepEqual(calls.map((call) => call.url), [GEMINI_URL, GROQ_URL]);
   assert.equal(body.reply.explanation, replyFixture.explanation);
+});
+
+test('an empty OpenRouter chat reply falls back to configured Gemini with saved guidance', async (t) => {
+  providerConfig(t, { gemini: 'unit-test-gemini-key', groq: '', openrouter: 'unit-test-openrouter-key' });
+  const calls = [];
+  mockProviderFetch(t, async (url, init) => {
+    calls.push(url);
+    if (url === OPENROUTER_URL) {
+      const body = JSON.parse(init.body);
+      assert.equal(body.reasoning_effort, 'low');
+      return jsonResponse({ choices: [{ finish_reason: 'length', message: { content: '' } }] });
+    }
+
+    assert.equal(url, GEMINI_URL);
+    assert.equal(init.headers['x-goog-api-key'], 'unit-test-gemini-key');
+    const body = JSON.parse(init.body);
+    const context = JSON.parse(body.contents[0].parts[0].text);
+    assert.match(context.recentConversation, /Close the browser tab without clicking/);
+    assert.equal(context.currentTurn.userMessage, 'How do I close the tab?');
+    assert.equal(context.currentTurn.sessionState.securityStatus, 'strong_warning');
+    return jsonResponse({ candidates: [{ content: { parts: [{ text: JSON.stringify({
+      ...replyFixture,
+      explanation: 'Try Ctrl+W to close the current tab. If it stays open, press Alt+F4 to close the browser window.',
+      background: '',
+      nextStep: '',
+      steps: ['Press Ctrl+W.', 'If the tab stays open, press Alt+F4.'],
+      securityStatus: 'strong_warning',
+    }) }] } }] });
+  });
+
+  const base = await withServer(t);
+  const response = await fetch(`${base}/api/turn`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      message: 'How do I close the tab?',
+      state: { screenSummary: 'A fake Flash Player update asks to download software.', securityStatus: 'strong_warning' },
+      history: [{ role: 'assistant', text: 'Recommended next step: Close the browser tab without clicking anything on the page.' }],
+    }),
+  });
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(calls, [OPENROUTER_URL, GEMINI_URL]);
+  assert.match(body.reply.explanation, /Ctrl\+W/);
+  assert.deepEqual(body.reply.steps, ['Press Ctrl+W.', 'If the tab stays open, press Alt+F4.']);
+  assert.equal(body.reply.securityStatus, 'strong_warning');
+});
+
+test('Screenwise capability answers receive the actual monitoring state', async (t) => {
+  providerConfig(t, { gemini: '', groq: '', openrouter: 'unit-test-openrouter-key' });
+  let requestBody;
+  mockProviderFetch(t, async (_url, init) => {
+    requestBody = JSON.parse(init.body);
+    return jsonResponse({ choices: [{ message: { content: JSON.stringify({
+      ...replyFixture,
+      explanation: 'Screenwise can monitor a selected screen while it is active, but it does not save a video.',
+      securityStatus: 'not_security_related',
+    }) } }] });
+  });
+
+  const base = await withServer(t);
+  const response = await fetch(`${base}/api/turn`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      message: 'Can you screen record?',
+      monitoringStatus: 'off',
+      state: {},
+      history: [],
+    }),
+  });
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  const context = JSON.parse(requestBody.messages.at(-1).content);
+  assert.equal(context.monitoringStatus, 'off');
+  assert.match(requestBody.messages[0].content, /does not create or save a continuous video recording/i);
+  assert.match(requestBody.messages[0].content, /receives no fresh frames/i);
+  assert.match(body.reply.explanation, /monitor a selected screen/i);
 });
 
 test('screen-change events update guidance without requiring a user chat message', async (t) => {
@@ -256,13 +376,14 @@ test('screen-change events update guidance without requiring a user chat message
   mockProviderFetch(t, async (_url, init) => {
     const body = JSON.parse(init.body);
     calls.push(body);
-    if (calls.length === 1) {
-      assert.equal(body.messages[0].content[1].image_url.url, IMAGE);
-      return jsonResponse({ choices: [{ message: { content: 'A new security notification appeared.' } }] });
-    }
-    const context = JSON.parse(body.messages.at(-1).content);
-    assert.match(context.userMessage, /meaningful screen change/i);
+    const context = JSON.parse(body.messages.at(-1).content[0].text);
+    assert.equal(context.responseMode, 'automatic-screen-change-update');
+    assert.match(context.userMessage, /screen change was detected/i);
     assert.equal(context.sessionState.currentStep, 'Review the notification title');
+    assert.equal(body.messages.at(-1).content[1].image_url.url, IMAGE);
+    const systemMessage = body.messages.find((message) => message.role === 'system');
+    assert.match(systemMessage.content, /A scroll, animation, cursor movement, or different page layout is not important by itself/i);
+    assert.match(systemMessage.content, /Do not repeat the earlier explanation or steps/i);
     return groqReplyResponse({ ...replyFixture, shouldInterrupt: false, screenSummary: 'A security notification appeared.' });
   });
 
@@ -281,9 +402,32 @@ test('screen-change events update guidance without requiring a user chat message
   const body = await response.json();
 
   assert.equal(response.status, 200);
-  assert.equal(calls.length, 2);
+  assert.equal(calls.length, 1);
   assert.equal(body.reply.shouldInterrupt, false);
   assert.equal(body.reply.screenSummary, 'A security notification appeared.');
+});
+
+test('automatic screen updates stay quiet unless the AI clearly flags new information', async (t) => {
+  providerConfig(t, { gemini: '' });
+  let calls = 0;
+  mockProviderFetch(t, async (_url, init) => {
+    calls += 1;
+    const body = JSON.parse(init.body);
+    assert.equal(body.messages.at(-1).content[1].image_url.url, IMAGE);
+    return groqReplyResponse({ ...replyFixture, shouldInterrupt: undefined });
+  });
+
+  const base = await withServer(t);
+  const response = await fetch(`${base}/api/turn`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message: '', frameData: IMAGE, eventOnly: true, state: {}, history: [] }),
+  });
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(calls, 1);
+  assert.equal(body.reply.shouldInterrupt, false);
 });
 
 test('Groq alone supports chat and vision, and health reports key presence accurately', async (t) => {
@@ -300,7 +444,7 @@ test('Groq alone supports chat and vision, and health reports key presence accur
 
   const base = await withServer(t);
   const health = await (await fetch(`${base}/api/health`)).json();
-  assert.deepEqual(health, { ok: true, configured: { gemini: false, groq: true, openrouter: false, openrouterChat: false } });
+  assert.deepEqual(health, { ok: true, configured: { gemini: false, groq: true, openrouter: false, openrouterVision: false, openrouterChat: false } });
 
   const response = await fetch(`${base}/api/turn`, {
     method: 'POST',
@@ -347,4 +491,72 @@ test('provider failures return a recoverable response and never include configur
   assert.match(body.error, /Gemini test outage/);
   assert.match(body.error, /Groq test outage/);
   assert.doesNotMatch(body.error, /unit-test-(?:gemini|groq)-key/);
+});
+
+test('a truncated JSON reply recovers readable guidance instead of showing raw JSON', async (t) => {
+  providerConfig(t, { gemini: '' });
+  const truncatedReply = '{"explanation":"I can see a Codex window with the error Could not reach the local companion API at http://127.0.0.1:8788: fetch failed.","background":"The Companion API did not respond.","nextStep":"Start the Companion with npm run dev in the project folder.","steps":["Leave the terminal running.","Retry the evaluation."],"currentStep":"Start the local API","goal":"Run the evaluation","screenSummary":"Codex shows a local API connection error.';
+  mockProviderFetch(t, async (url) => {
+    assert.equal(url, GROQ_URL);
+    return jsonResponse({ choices: [{ message: { content: truncatedReply } }] });
+  });
+
+  const base = await withServer(t);
+  const response = await fetch(`${base}/api/turn`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message: 'What does my current screen show?', state: {}, history: [] }),
+  });
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.match(body.reply.explanation, /Codex window with the error/);
+  assert.match(body.reply.nextStep, /npm run dev/);
+  assert.deepEqual(body.reply.steps, ['Leave the terminal running.', 'Retry the evaluation.']);
+  assert.equal(body.reply.confidence, 'low');
+  assert.match(body.reply.confidenceNote, /AI response was incomplete/i);
+  assert.doesNotMatch(body.reply.explanation, /^\s*\{/);
+});
+
+test('a complete but wrong-shaped JSON reply does not leak raw JSON into the chat', async (t) => {
+  providerConfig(t, { gemini: '' });
+  mockProviderFetch(t, async (url) => {
+    assert.equal(url, GROQ_URL);
+    return jsonResponse({ choices: [{ message: { content: '{"unexpected":"provider payload"}' } }] });
+  });
+
+  const base = await withServer(t);
+  const response = await fetch(`${base}/api/turn`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message: 'What is happening?', state: {}, history: [] }),
+  });
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.match(body.reply.explanation, /did not include a readable explanation/i);
+  assert.match(body.reply.confidenceNote, /not in the expected format/i);
+  assert.equal(body.reply.confidence, 'low');
+  assert.doesNotMatch(body.reply.explanation, /provider payload/);
+});
+
+test('security status is separate from reading confidence and invalid values become unclear', async (t) => {
+  providerConfig(t, { gemini: '' });
+  mockProviderFetch(t, async () => groqReplyResponse({
+    ...replyFixture,
+    confidence: 'high',
+    securityStatus: 'high',
+  }));
+
+  const base = await withServer(t);
+  const response = await fetch(`${base}/api/turn`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message: 'What does this screen show?', frameData: IMAGE, state: {}, history: [] }),
+  });
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(body.reply.confidence, 'high');
+  assert.equal(body.reply.securityStatus, 'unclear');
 });

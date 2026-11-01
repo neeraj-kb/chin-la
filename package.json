@@ -13,6 +13,7 @@
     "setup:electron": "node node_modules/electron/install.js",
     "build": "tsc -b && vite build",
     "start:server": "node server/index.mjs",
+    "eval:companion": "node evaluation/run.mjs",
     "preview": "vite preview --host 127.0.0.1",
     "typecheck": "tsc -b --pretty",
     "test": "node --test"

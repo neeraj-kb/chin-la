@@ -7,7 +7,7 @@ export async function checkBackend() {
   if (!response.ok) throw new Error('The companion service is unavailable.');
   return response.json() as Promise<{
     ok: boolean;
-    configured: { gemini: boolean; groq: boolean; openrouter: boolean; openrouterChat: boolean };
+    configured: { gemini: boolean; groq: boolean; openrouter: boolean; openrouterVision: boolean; openrouterChat: boolean };
   }>;
 }
 
@@ -15,6 +15,7 @@ export async function sendTurn(input: {
   message: string;
   frameData?: string;
   eventOnly?: boolean;
+  monitoringStatus?: 'off' | 'active' | 'paused';
   state: SessionState;
   history: ChatMessage[];
 }, signal?: AbortSignal): Promise<AssistantReply> {

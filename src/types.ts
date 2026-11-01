@@ -5,6 +5,8 @@ export type SessionState = {
   nextStep: string;
   lastIssue: string;
   completedSteps: string[];
+  securityStatus: AssistantReply['securityStatus'];
+  readingConfidence: AssistantReply['confidence'];
 };
 
 export type AssistantReply = {
@@ -18,6 +20,8 @@ export type AssistantReply = {
   lastIssue: string;
   completedSteps: string[];
   confidence: 'high' | 'medium' | 'low';
+  confidenceNote: string;
+  securityStatus: 'strong_warning' | 'caution' | 'no_obvious_warning' | 'not_security_related' | 'unclear';
   shouldInterrupt: boolean;
 };
 
@@ -43,4 +47,6 @@ export const emptySessionState: SessionState = {
   nextStep: '',
   lastIssue: '',
   completedSteps: [],
+  securityStatus: 'unclear',
+  readingConfidence: 'low',
 };
